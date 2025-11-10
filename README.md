@@ -207,5 +207,6 @@ optional arguments:
     <tr>
         <td align="left" valign="top" width="14.28%"><a href="https://github.com/saulobritto"><img src="https://avatars.githubusercontent.com/u/50638088?v=4" width="100px;" alt="Saulo Britto"/><br />Saulo Britto</a></td>
         <td align="left" valign="top" width="14.28%"><a href="https://github.com/ellenjkr"><img src="https://avatars.githubusercontent.com/u/49100458?v=4" width="100px;" alt="Ellen Junker"/><br />Ellen Junker</a></td>
+        <td align="left" valign="top" width="14.28%"><a href="[https://github.com/machenka-code]"><img src="https://avatars.githubusercontent.com/u/195959754?v=4" width="100px;" alt="Maria Nascimento"/><br />Maria Nascimento</a></td>
     </tr>
 </table>
