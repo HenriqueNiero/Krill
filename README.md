@@ -1,4 +1,8 @@
 # Krill
+New modifications developed at LNBio-CNPEM
+Version modifications:
+1- Updated rename, build tables with reference to original contig fasta headers.
+2-
 
 ## :mag_right: SUMMARY
 1. :scroll: ABOUT
