@@ -127,6 +127,13 @@ def ARTS_overview(path):
     
     data_frames = [CDS_df, clusters_df, hits_df, core_df, dup_df, bgc_prox_df]
 
+    print("\nColumn dtypes:\n")
+    for df in data_frames:
+        print(df.columns.tolist())
+        print(df.dtypes)
+        print(df.head())
+        print()
+
     overview_df = pd.DataFrame(data=samples, columns=['Sample'])
     for data_frame in data_frames:
         if data_frame.empty is False:
@@ -150,9 +157,15 @@ def ARTS_overview(path):
 def readTSVKnownHits(tsv):
     df = pd.read_csv(tsv,sep='\t')
     df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
+    print("\n ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS \n")
+    print("df do ARTS está como: \n", df)
+    print("\n")
     df.rename(columns={'#Model':'Model'},inplace=True)
+    
     df['Contig'] = df['Sequence description'].str.split('|').str[2].str.split('_').str[1].astype(int)
     df['Contig'] = df['Sample']+'_'+df['Contig'].astype(str)
+    print("df do ARTS está assim após colocar a coluna Contig: \n", df)
+    print("\n")
     df['HitStart'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[0]
     df['HitEnd'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[1]
     df['HitStrand'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[2]

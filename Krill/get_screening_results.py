@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 import sys, os, ast
 from statistics import mean
+import pathlib, os
+import ast, numpy as np
 
 
 def df2xlsx(path, sheet_name, df):
@@ -63,6 +65,9 @@ def map_products_to_category(product):
     return 'others'
 
 
+def get_csvs(path,pattern):
+    return list(pathlib.Path(path).glob('**/{}'.format(pattern)))
+
 def run(path):
     if os.path.exists(os.path.join(path,'ARTS','ARTS_Extractor','KnownHits.tsv')):
         KnownHits = pd.read_csv(os.path.join(path,'ARTS','ARTS_Extractor','KnownHits.tsv'),sep='\t',converters={'Sample':str})
@@ -75,7 +80,7 @@ def run(path):
         clusters_blast = pd.DataFrame()
     clusters = pd.read_csv(os.path.join(path,'AntiSMASH','AntiSMASH_Extractor','clusters.tsv'),sep='\t',converters={'file_name':str})
 
-    hit_selected = clusters[['file_name','contig','cluster_number','product','contig_edge','SMILES','Start','End','strand','genes']].set_index('contig')
+    hit_selected = clusters[['file_name','contig','type','cluster_number','product','contig_edge','kind','protoclusters','SMILES','Start','End','strand','genes']].set_index('contig')
     hit_selected['KnownResistenceHit'] = ''
     hit_selected['BGCs_Hits'] = ''
     hit_selected['BGCs_Hits_Mean_Similarities(%)'] = ''
@@ -136,20 +141,58 @@ def run(path):
     hit_selected['Size'] = hit_selected['End']-hit_selected['Start']
 
     hit_selected['regulatory_genes'] = hit_selected['genes'].str.contains('regulatory',case=False)
-    hit_selected = hit_selected[['sample','cluster_number', 'product', 'completeness', 'SMILES', 'Start', 'End', 'Size', 'strand', 'genes', 'regulatory_genes','KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']]
+    hit_selected = hit_selected[['sample','cluster_number', 'product', 'completeness', 'kind', 'protoclusters', 'SMILES', 'Start', 'End', 'Size', 'strand', 'genes', 'regulatory_genes','KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']]
 
     hit_selected['product_bigscape'] = hit_selected['product'].apply(map_products_to_category)
     hit_selected.insert(hit_selected.columns.get_loc('product') + 1, 'product_bigscape', hit_selected.pop('product_bigscape'))
 
-    hit_selected.to_csv(os.path.join(path,'ReportOutput/BGCs_with_Hits.tsv'),sep='\t')
-    
-    # hit_selected.to_csv(os.path.join(path,'BGCs_with_Hits.tsv'),sep='\t')
-    df2xlsx(os.path.join(path,'ReportOutput/BGCs_with_Hits.xlsx'), 'BGCs with Hits', hit_selected)
+    #Add column original_contig_header to the BGCs_with_Hits.tsv table
+    print("\n \nhit_selected tem o seguinte valor: \n", hit_selected)
 
-    hit_selected = hit_selected[hit_selected['completeness'] == "Complete"]
-    hit_selected.to_csv(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.tsv'),sep='\t')
-    # hit_selected.to_csv(os.path.join(path,'Complete_BGCs_with_Hits.tsv'),sep='\t')
-    df2xlsx(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.xlsx'), 'Complete BGCs with Hits', hit_selected)
+    ref_renamecontig = get_csvs(path,'contigsFilesRenamed.tsv')
+    print("\n \n ref_renamecontig get_csvs valores obtidos com essa função: \n", ref_renamecontig)
+    renamecontig = {}
+
+    for ref in ref_renamecontig:
+        db = os.path.basename(os.path.dirname(ref))
+        print("\n db valores:\n", db)
+        df = pd.read_csv(ref,dtype='object',sep='\t')
+        print("\n df valores lidos com read_csv: \n", df)
+        df = df.apply(lambda col: col.map(lambda x: x.rstrip(f'.fasta')))
+        print("\n df após o apply lambda etc: \n", df, "\n \n")
+        df.rename(columns={'new_contigs':'contig','original_contigs':'Original_contig'},inplace=True)
+        print("\n df após renomear colunas new contigs: \n", df, "\n \n")
+
+        hit_selected_originalcontigs = pd.merge(hit_selected, df, how="left", on="contig")
+        print("\n hit_selected_originalcontigs resultado da tabela: \n", hit_selected_originalcontigs)
+
+    print("\n ###################### \n o path é: \n ", path)
+    print("\n ###################### \n \n")
+
+
+    # If the contigs files rename folder exist it will use this file to generate the tables, otherwise
+    # it will be skipped and the original hit_selected will be used to generate the tables 
+    if os.path.exists(os.path.join(path, 'contigsFilesRenamed.tsv')):
+        hit_selected_originalcontigs.to_csv(os.path.join(path,'ReportOutput/BGCs_with_Hits.tsv'),sep='\t')
+    
+        # hit_selected_originalcontigs.to_csv(os.path.join(path,'BGCs_with_Hits.tsv'),sep='\t')
+        df2xlsx(os.path.join(path,'ReportOutput/BGCs_with_Hits.xlsx'), 'BGCs with Hits', hit_selected_originalcontigs)
+
+        hit_selected_originalcontigs = hit_selected_originalcontigs[hit_selected_originalcontigs['completeness'] == "Complete"]
+        hit_selected_originalcontigs.to_csv(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.tsv'),sep='\t')
+        # hit_selected.to_csv(os.path.join(path,'Complete_BGCs_with_Hits.tsv'),sep='\t')
+        df2xlsx(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.xlsx'), 'Complete BGCs with Hits', hit_selected_originalcontigs)
+
+    else:
+        hit_selected.to_csv(os.path.join(path,'ReportOutput/BGCs_with_Hits.tsv'),sep='\t')
+    
+        # hit_selected.to_csv(os.path.join(path,'BGCs_with_Hits.tsv'),sep='\t')
+        df2xlsx(os.path.join(path,'ReportOutput/BGCs_with_Hits.xlsx'), 'BGCs with Hits', hit_selected)
+
+        hit_selected = hit_selected[hit_selected['completeness'] == "Complete"]
+        hit_selected.to_csv(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.tsv'),sep='\t')
+        # hit_selected.to_csv(os.path.join(path,'Complete_BGCs_with_Hits.tsv'),sep='\t')
+        df2xlsx(os.path.join(path,'ReportOutput/Complete_BGCs_with_Hits.xlsx'), 'Complete BGCs with Hits', hit_selected)
 
 if __name__ == '__main__':
     run('/media/bioinfo/6tb_hdd/03_ELLEN/krill_runs/01_REPORT_DATABASES/KRILL_RESULTS/BlackSeaSequences')
