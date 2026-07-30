@@ -71,6 +71,7 @@ def get_csvs(path,pattern):
 def run(path):
     if os.path.exists(os.path.join(path,'ARTS','ARTS_Extractor','KnownHits.tsv')):
         KnownHits = pd.read_csv(os.path.join(path,'ARTS','ARTS_Extractor','KnownHits.tsv'),sep='\t',converters={'Sample':str})
+
     CoreHits = pd.read_csv(os.path.join(path,'ARTS','ARTS_Extractor','CoreHits.tsv'),sep='\t',converters={'Sample':str})
     DupHits = pd.read_csv(os.path.join(path,'ARTS','ARTS_Extractor','DupHits.tsv'),sep='\t',converters={'Sample':str})
     
@@ -80,10 +81,13 @@ def run(path):
         clusters_blast = pd.DataFrame()
     clusters = pd.read_csv(os.path.join(path,'AntiSMASH','AntiSMASH_Extractor','clusters.tsv'),sep='\t',converters={'file_name':str})
 
+
     hit_selected = clusters[['file_name','contig','type','cluster_number','product','contig_edge','kind','protoclusters','SMILES','Start','End','strand','genes']].set_index('contig')
     hit_selected['KnownResistenceHit'] = ''
     hit_selected['BGCs_Hits'] = ''
     hit_selected['BGCs_Hits_Mean_Similarities(%)'] = ''
+
+
     for i in clusters.index:
         bgc = clusters.loc[i, 'contig']
         cluster_number = clusters.loc[i,'cluster_number']
@@ -132,10 +136,11 @@ def run(path):
             hit_selected.loc[bgc,'CoreHit'] = 'N/A'
     
     hit_selected = hit_selected.replace('N/A',np.NaN).replace('',np.NaN)
-    hit_selected.dropna(subset=['KnownResistenceHit','CoreHit'],how='all',inplace=True)
+    #hit_selected.dropna(subset=['KnownResistenceHit','CoreHit'],how='all',inplace=True)
     
     
     hit_selected.rename(columns={'contig_edge':'completeness','file_name':'sample'},inplace=True)
+    #comment rename contig_edge to completeness and true to fragmented and false to complete
     completeness = {"['True']":"Fragmented","['False']":"Complete"}
     hit_selected['completeness'] = hit_selected['completeness'].replace(completeness)
     hit_selected['Size'] = hit_selected['End']-hit_selected['Start']
@@ -146,28 +151,23 @@ def run(path):
     hit_selected['product_bigscape'] = hit_selected['product'].apply(map_products_to_category)
     hit_selected.insert(hit_selected.columns.get_loc('product') + 1, 'product_bigscape', hit_selected.pop('product_bigscape'))
 
+
     #Add column original_contig_header to the BGCs_with_Hits.tsv table
-    print("\n \nhit_selected tem o seguinte valor: \n", hit_selected)
+
 
     ref_renamecontig = get_csvs(path,'contigsFilesRenamed.tsv')
-    print("\n \n ref_renamecontig get_csvs valores obtidos com essa função: \n", ref_renamecontig)
+
     renamecontig = {}
 
     for ref in ref_renamecontig:
         db = os.path.basename(os.path.dirname(ref))
-        print("\n db valores:\n", db)
         df = pd.read_csv(ref,dtype='object',sep='\t')
-        print("\n df valores lidos com read_csv: \n", df)
         df = df.apply(lambda col: col.map(lambda x: x.rstrip(f'.fasta')))
-        print("\n df após o apply lambda etc: \n", df, "\n \n")
         df.rename(columns={'new_contigs':'contig','original_contigs':'Original_contig'},inplace=True)
-        print("\n df após renomear colunas new contigs: \n", df, "\n \n")
-
         hit_selected_originalcontigs = pd.merge(hit_selected, df, how="left", on="contig")
-        print("\n hit_selected_originalcontigs resultado da tabela: \n", hit_selected_originalcontigs)
+        
 
-    print("\n ###################### \n o path é: \n ", path)
-    print("\n ###################### \n \n")
+
 
 
     # If the contigs files rename folder exist it will use this file to generate the tables, otherwise

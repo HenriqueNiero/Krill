@@ -13,6 +13,9 @@ from functools import reduce
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 from ast import literal_eval
+import re
+
+pd.set_option('display.max_columns', 10)
 
 def prepare_extraction(path):
     
@@ -127,13 +130,6 @@ def ARTS_overview(path):
     
     data_frames = [CDS_df, clusters_df, hits_df, core_df, dup_df, bgc_prox_df]
 
-    print("\nColumn dtypes:\n")
-    for df in data_frames:
-        print(df.columns.tolist())
-        print(df.dtypes)
-        print(df.head())
-        print()
-
     overview_df = pd.DataFrame(data=samples, columns=['Sample'])
     for data_frame in data_frames:
         if data_frame.empty is False:
@@ -154,23 +150,115 @@ def ARTS_overview(path):
     df2xlsx(os.path.join(directory,'ARTS_overview.xlsx'), 'ARTS_overview', overview_df)
     print('Overview Done.\n')
 
-def readTSVKnownHits(tsv):
+""" def readTSVKnownHits(tsv):
     df = pd.read_csv(tsv,sep='\t')
     df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
-    print("\n ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS ARTS \n")
-    print("df do ARTS está como: \n", df)
-    print("\n")
     df.rename(columns={'#Model':'Model'},inplace=True)
-    
     df['Contig'] = df['Sequence description'].str.split('|').str[2].str.split('_').str[1].astype(int)
     df['Contig'] = df['Sample']+'_'+df['Contig'].astype(str)
-    print("df do ARTS está assim após colocar a coluna Contig: \n", df)
-    print("\n")
     df['HitStart'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[0]
     df['HitEnd'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[1]
     df['HitStrand'] = df['Sequence description'].str.split('|').str[6].str.split('_').str[2]
     df.drop(columns=['Sequence description'],inplace=True)
    
+    return df """
+
+def readTSVKnownHits(tsv):
+    df = pd.read_csv(tsv, sep="\t")
+    sample = os.path.basename(os.path.dirname(os.path.dirname(tsv)))
+    df["Sample"] = sample
+    df.rename(columns={"#Model": "Model"}, inplace=True)
+
+    tsv_abs = os.path.abspath(tsv)
+    sample_dir = os.path.dirname(os.path.dirname(tsv_abs))
+    arts_dir = os.path.dirname(sample_dir)
+    database_dir = os.path.dirname(arts_dir)
+    rename_contigs_file = os.path.join(database_dir, "contigsFilesRenamed.tsv")
+
+    # Add conditional structure to change how tables are constucted. If -noprep is activated it will look for contig names inside .fna files
+    if os.path.exists(rename_contigs_file):
+        # If -noprep is deactivated
+        print("\n")
+        print(f"Using renamed {rename_contigs_file} in ARTS")
+
+        df["Contig"] = (
+            df["Sequence description"]
+              .str.split("|").str[2]
+              .str.split("_").str[1]
+              .astype(int)
+        )
+        df["Contig"] = df["Sample"] + "_" + df["Contig"].astype(str)
+        df["HitStart"] = (
+            df["Sequence description"]
+              .str.split("|").str[6]
+              .str.split("_").str[0]
+        )
+        df["HitEnd"] = (
+            df["Sequence description"]
+              .str.split("|").str[6]
+              .str.split("_").str[1]
+        )
+        df["HitStrand"] = (
+            df["Sequence description"]
+              .str.split("|").str[6]
+              .str.split("_").str[2]
+        )
+        df.drop(columns=["Sequence description"], inplace=True)
+
+    else:
+        # if -noprep is activated
+        # Build dictionary from the sample .fna
+        print("\n")
+        print("contigsFilesRenamed.tsv not found during ARTS. Recovering contig names from .fna files.")
+        sample_dir = pathlib.Path(tsv).parents[1]
+        fna_file = sample_dir / f"{sample}.fna"
+
+
+        if not fna_file.exists():
+            raise FileNotFoundError(
+                f"Cannot find FNA file:\n{fna_file}"
+            )
+
+        contig_dict = {}
+
+        for record in SeqIO.parse(str(fna_file), "fasta"):
+            header = record.description
+            try:
+                sequence_id = int(header.split("|")[1])
+                remainder = header.split(" ", 1)[1]
+                contig = re.split(r"[ |]", remainder, maxsplit=1)[0]
+                contig_dict[sequence_id] = contig
+
+
+            except Exception:
+                continue
+
+        # Add new column
+        df["Contig"] = df["Sequence id"].map(contig_dict)
+        # Warn about IDs not found
+        missing = df["Contig"].isna().sum()
+        if missing > 0:
+            print(
+                f"WARNING: {missing} Sequence ids could not be matched "
+                f"in {fna_file.name}"
+            )
+        df["HitStart"] = (
+            df["Sequence description"]
+                .str.split("|").str[6]
+                .str.split("_").str[0]
+        )
+        df["HitEnd"] = (
+            df["Sequence description"]
+                .str.split("|").str[6]
+                .str.split("_").str[1]
+        )
+        df["HitStrand"] = (
+            df["Sequence description"]
+                .str.split("|").str[6]
+                .str.split("_").str[2]
+        )    
+        df.drop(columns=["Sequence description"], inplace=True)
+
     return df
     
 def readTSVCoreHits(tsv):

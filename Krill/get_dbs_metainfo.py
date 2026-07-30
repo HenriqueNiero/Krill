@@ -63,6 +63,8 @@ def map_products_to_category(product):
 
 def get(path, ext, root_database):
     ref_rename = get_csvs(path,'fastaFilesRenamed.tsv')
+
+
     rename = {}
     
     for ref in ref_rename:
@@ -75,7 +77,7 @@ def get(path, ext, root_database):
     
     for f in files:
         tables = get_csvs(path,f)
-        print("\n \n tables = get_csv(path,f) for f in files: \n", tables)
+
         table_clean = pd.DataFrame()
         countORFsAndDNA = pd.DataFrame()
         
@@ -86,14 +88,20 @@ def get(path, ext, root_database):
             df = pd.read_csv(t,dtype='object',sep='\t')
             # Add Database name column to the df for DBs_BGCs_with_Hits.tsv table in DBsReportOutput
             df['Database'] = db
-            print("\n \n dataframe df depois de pd.read_csv das tabelas de entrada: \n", df)
-
 
 
             if not 'DNABases' in str(t):
-                df['OriginalName'] = df['contig'].str.split('_').str[0].replace(rename[db],regex=True)
-                table_clean = pd.concat([table_clean, df], ignore_index=True)
-                print("\n \n table_clean depois de table_clean = pd.concat([table_clean, df], ignore_index=True): \n", table_clean)
+                contigs_file = os.path.join(path, db, "fastaFilesRenamed.tsv")
+                if os.path.exists(contigs_file):
+                    df['OriginalName'] = df['contig'].str.split('_').str[0].replace(rename[db],regex=True)
+                    table_clean = pd.concat([table_clean, df], ignore_index=True)
+                    table_clean = table_clean[["Database","OriginalName","Original_contig","contig","cluster_number","product","kind","protoclusters","completeness","SMILES","Start","End","Size","strand","genes","regulatory_genes",'KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']].sort_values(by='Database')
+
+                else:
+                    df['OriginalName'] = df['sample']
+                    table_clean = pd.concat([table_clean, df], ignore_index=True)
+                    table_clean = table_clean[["Database","OriginalName","contig","cluster_number","product","kind","protoclusters","completeness","SMILES","Start","End","Size","strand","genes","regulatory_genes",'KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']].sort_values(by='Database')
+
 
             if 'DNABases' in str(t):
                 df['NT (KB)'] = df['NT (KB)'].astype(float)
@@ -113,13 +121,13 @@ def get(path, ext, root_database):
 
                 countORFsAndDNA = pd.concat([countORFsAndDNA, df], ignore_index=True)
 
-        # Inseri as informações de kind, protocluster e Original_contig na tabela        
+                
         if not 'DNABases' in str(f):
-            table_clean = table_clean[["Database","OriginalName","Original_contig","contig","cluster_number","product","kind","protoclusters","completeness","SMILES","Start","End","Size","strand","genes","regulatory_genes",'KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']].sort_values(by='Database')
-            print("\n \n table_clean depois de table_clean = table_clean[[Database, OriginalName, contig, cluster_number, smiles, start, end, etc...]]: \n", table_clean)
+            #table_clean = table_clean[["Database","OriginalName","Original_contig","contig","cluster_number","product","kind","protoclusters","completeness","SMILES","Start","End","Size","strand","genes","regulatory_genes",'KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']].sort_values(by='Database')
+
             table_clean['product_bigscape'] = table_clean['product'].apply(map_products_to_category)
             table_clean.insert(table_clean.columns.get_loc('product') + 1, 'product_bigscape', table_clean.pop('product_bigscape'))
-            print("\n \n table_clean depois de table_clean.insert product_bigscape depois de product: \n", table_clean)
+
             table_clean.to_csv(os.path.join(path,'DBsReportOutput/DBs_'+f),index=False,sep='\t')
             f = f.replace('tsv', 'xlsx')
             df2xlsx(os.path.join(path,'DBsReportOutput/DBs_'+f), 'DBs Report', table_clean)

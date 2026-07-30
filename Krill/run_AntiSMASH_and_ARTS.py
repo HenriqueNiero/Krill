@@ -26,26 +26,30 @@ def run(fasta_file, db):
         thr=1
         gbk=os.path.join(db,'AntiSMASH',name,name+'.gbk')
 
-        #subprocess.run(
-        #    'bash {project_dir}/krill_run_arts.sh {input} {hmm_ref} {res_dir} {thr}'.format(project_dir=project_dir, input=gbk, hmm_ref=hmm_ref, res_dir=res_dir, thr=thr),
-        #    shell=True,
-        #    executable='/bin/bash',
-        #    stdout=subprocess.DEVNULL,
-        #    stderr=subprocess.STDOUT
-        #)
 
-        result = subprocess.run(
+        # Block ARTS for showing work process in terminal
+        subprocess.run(
             'bash {project_dir}/krill_run_arts.sh {input} {hmm_ref} {res_dir} {thr}'.format(project_dir=project_dir, input=gbk, hmm_ref=hmm_ref, res_dir=res_dir, thr=thr),
             shell=True,
             executable='/bin/bash',
-            capture_output=True,
-            text=True
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT
         )
 
-        print("Return code:", result.returncode)
-        print("STDOUT:")
-        print(result.stdout)
-        print("STDERR:")
-        print(result.stderr)
+
+        # Show ARTS working in terminal
+        #result = subprocess.run(
+        #    'bash {project_dir}/krill_run_arts.sh {input} {hmm_ref} {res_dir} {thr}'.format(project_dir=project_dir, input=gbk, hmm_ref=hmm_ref, res_dir=res_dir, thr=thr),
+        #    shell=True,
+        #    executable='/bin/bash',
+        #    capture_output=True,
+        #    text=True
+        #)
+        #
+        #print("Return code:", result.returncode)
+        #print("STDOUT:")
+        #print(result.stdout)
+        #print("STDERR:")
+        #print(result.stderr)
 
     return int(os.stat(fasta_file).st_size/(10**6))
