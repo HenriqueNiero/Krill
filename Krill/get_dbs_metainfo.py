@@ -125,12 +125,105 @@ def get(path, ext, root_database):
         if not 'DNABases' in str(f):
             #table_clean = table_clean[["Database","OriginalName","Original_contig","contig","cluster_number","product","kind","protoclusters","completeness","SMILES","Start","End","Size","strand","genes","regulatory_genes",'KnownResistenceHit','CoreHit','BGCs_Hits','BGCs_Hits_Mean_Similarities(%)']].sort_values(by='Database')
 
-            table_clean['product_bigscape'] = table_clean['product'].apply(map_products_to_category)
-            table_clean.insert(table_clean.columns.get_loc('product') + 1, 'product_bigscape', table_clean.pop('product_bigscape'))
+            # Remove "['", "']", "[]" and "['']" from selected columns
+            for col in ["kind", "protoclusters"]:
+                if col in table_clean.columns:
+                    table_clean[col] = (
+                        table_clean[col]
+                        .fillna("")
+                        .astype(str)
+                        .str.replace("[", "", regex=False)
+                        .str.replace("]", "", regex=False)
+                        .str.replace("'", "", regex=False)
+                    )
 
-            table_clean.to_csv(os.path.join(path,'DBsReportOutput/DBs_'+f),index=False,sep='\t')
-            f = f.replace('tsv', 'xlsx')
-            df2xlsx(os.path.join(path,'DBsReportOutput/DBs_'+f), 'DBs Report', table_clean)
+            for col in ["SMILES"]:
+                if col in table_clean.columns:
+                    table_clean[col] = (
+                        table_clean[col]
+                        .fillna("")
+                        .astype(str)
+                        .str.replace("['", "", regex=False)
+                        .str.replace("']", "", regex=False)
+                        .str.replace("[]", "", regex=False)
+                        .str.replace("['']", "", regex=False)
+                    )
+
+            # Extract ResFam IDs and products from KnownResistenceHit
+            def extract_known_resistance(value):
+                if pd.isna(value):
+                    return pd.Series(["", ""])
+                try:
+                    hits = ast.literal_eval(value)
+                    if not isinstance(hits, list):
+                        return pd.Series(["", ""])
+                    resfams = []
+                    products = []
+
+                    for hit in hits:
+                        if isinstance(hit, (list, tuple)) and len(hit) >= 3:
+                            resfams.append(str(hit[1]))
+                            products.append(str(hit[2]))
+
+                    return pd.Series([",".join(resfams),",".join(products)])
+
+                except Exception:
+                    return pd.Series(["", ""])
+
+
+            # Extract MIBIG hits, best similarity and products from BGCs_Hits
+            def extract_mibig_hits(value):
+                if pd.isna(value):
+                    return pd.Series(["", "", "", ""])
+
+                try:
+                    hits = ast.literal_eval(value)
+
+                    if not isinstance(hits, list):
+                        return pd.Series(["", "", "", ""])
+
+                    mibigs = []
+                    similarities = []
+                    products = []
+
+                    for hit in hits:
+                        if isinstance(hit, (list, tuple)) and len(hit) >= 5:
+                            # MiBIG accession
+                            mibigs.append(str(hit[1]))
+                            # Similarity
+                            similarities.append(float(hit[4]))
+                            # Product (remove duplicates while preserving order)
+                            product = str(hit[3])
+                            if product not in products:
+                                products.append(product)
+
+                    mibig_list = ",".join(mibigs)
+                    best_mibig = mibigs[0] if mibigs else ""
+                    best_similarity = similarities[0] if similarities else ""
+                    product_list = ",".join(products)
+                    best_product = products[0] if products else ""
+
+                    return pd.Series([mibig_list, best_mibig, best_similarity, product_list, best_product])
+
+                except Exception:
+                    return pd.Series(["", "", "", ""])
+
+            # Known resistance information
+            table_clean[["KnownResistanceHit_Resfam","KnownResistanceHit_product"]] = table_clean["KnownResistenceHit"].apply(extract_known_resistance)
+
+            # Known BGCs Hits information
+            table_clean[["BGCs_Hits_MIBIG","BGCs_Hits_Best","BGCs_Hits_BestSimilarity","BGCs_Hits_Products","BGCs_Hits_BestProducts"]] = table_clean["BGCs_Hits"].apply(extract_mibig_hits)
+
+
+            # Add BiG-SCAPE category
+            table_clean["product_bigscape"] = table_clean["product"].apply(map_products_to_category)
+            table_clean.insert(table_clean.columns.get_loc("product") + 1,"product_bigscape",table_clean.pop("product_bigscape"))
+
+            # Save files
+            table_clean.to_csv(os.path.join(path, "DBsReportOutput/DBs_" + f),index=False,sep="\t")
+            f = f.replace("tsv", "xlsx")
+            df2xlsx(os.path.join(path, "DBsReportOutput/DBs_" + f),"DBs Report",table_clean)
+
 
         if 'DNABases' in str(f):
             countORFsAndDNA.to_csv(os.path.join(path,'DBsReportOutput/DBs_normalized_info.tsv'),sep='\t')

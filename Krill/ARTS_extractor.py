@@ -52,6 +52,8 @@ def ARTS_overview(path):
     referencia_clusters = list(pathlib.Path(path).glob("**/*clust.tsv"))
     referencia_knownhits = list(pathlib.Path(path).glob("**/**/knownhits.tsv"))
     referencia_coregenes = list(pathlib.Path(path).glob("**/**/coretable.tsv"))
+    print("\n###############   ARTS_extractor.py   #################")
+    print("\n> referencia_coregenes line 54: ", referencia_coregenes)
     referencia_duplic = list(pathlib.Path(path).glob("**/**/duptable.tsv"))
     
     CDS_count = []
@@ -117,6 +119,7 @@ def ARTS_overview(path):
     clusters_df = pd.DataFrame(clusters_count, columns=['Sample','Clusters'])
     hits_df = pd.DataFrame(hits_count, columns=['Sample','Known Resistence Hits'])
     core_df = pd.DataFrame(core_count, columns=['Sample','Core Genes'])
+    print("\n> core_df line 121: ", core_df)
     dup_df = pd.DataFrame(dup_count, columns=['Sample','Duplicated'])
     bgc_prox_df = pd.DataFrame(bgc_prox_count, columns=['Sample','BGC Proximity'])
     
@@ -179,7 +182,7 @@ def readTSVKnownHits(tsv):
     if os.path.exists(rename_contigs_file):
         # If -noprep is deactivated
         print("\n")
-        print(f"Using renamed {rename_contigs_file} in ARTS")
+        print(f"Using renamed {rename_contigs_file} in ARTS KnownHits tables")
 
         df["Contig"] = (
             df["Sequence description"]
@@ -208,8 +211,7 @@ def readTSVKnownHits(tsv):
     else:
         # if -noprep is activated
         # Build dictionary from the sample .fna
-        print("\n")
-        print("contigsFilesRenamed.tsv not found during ARTS. Recovering contig names from .fna files.")
+        print("\ncontigsFilesRenamed.tsv not found during ARTS. Recovering contig names from .fna files in KnownHits tables.")
         sample_dir = pathlib.Path(tsv).parents[1]
         fna_file = sample_dir / f"{sample}.fna"
 
@@ -260,21 +262,48 @@ def readTSVKnownHits(tsv):
         df.drop(columns=["Sequence description"], inplace=True)
 
     return df
-    
+
 def readTSVCoreHits(tsv):
-    df = pd.read_csv(tsv,sep='\t')
-    df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
-    df.rename(columns={'#Core_gene':'Core_gene'},inplace=True)
-    df['[Hits_listed]'] = df['[Hits_listed]'].str.replace('[','').str.replace(']','').str.split(';')
-    df = df.explode('[Hits_listed]')
-    df['Contig'] = df['[Hits_listed]'].str.split('|').str[4].str.split('=').str[-1].str.split('_').str[0].astype(int)
-    df['Contig'] = df['Sample']+'_'+df['Contig'].astype(str)
-    df['HitStart'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[0]
-    df['HitEnd'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[1]
-    df['HitStrand'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[2]
-    df.drop(columns=['[Hits_listed]'],inplace=True)
+    tsv_abs = os.path.abspath(tsv)
+    sample_dir = os.path.dirname(os.path.dirname(tsv_abs))
+    arts_dir = os.path.dirname(sample_dir)
+    database_dir = os.path.dirname(arts_dir)
+    rename_contigs_file = os.path.join(database_dir, "contigsFilesRenamed.tsv")
+
+    # Add conditional structure to change how tables are constucted. If -noprep is activated it will get contig names inside coretable.tsv
+    if os.path.exists(rename_contigs_file):
+        # If -noprep is deactivated
+        print("\n")
+        print(f"Using renamed {rename_contigs_file} in ARTS CoreHits tables")
+        df = pd.read_csv(tsv,sep='\t')
+        df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
+        df.rename(columns={'#Core_gene':'Core_gene'},inplace=True)
+        df['[Hits_listed]'] = df['[Hits_listed]'].str.replace('[','').str.replace(']','').str.split(';')
+        df = df.explode('[Hits_listed]')
+        df['Contig'] = df['[Hits_listed]'].str.split('|').str[4].str.split('=').str[-1].str.split('_').str[0].astype(int)
+        df['Contig'] = df['Sample']+'_'+df['Contig'].astype(str)
+        df['HitStart'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[0]
+        df['HitEnd'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[1]
+        df['HitStrand'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[2]
+        df.drop(columns=['[Hits_listed]'],inplace=True)
+
+    else:
+        # if -noprep is activated
+        # Build dictionary from the sample coretable.tsv file
+        print("\ncontigsFilesRenamed.tsv not found during ARTS. Recovering contig names from coretable.tsv in CoreHits tables.")
+        df = pd.read_csv(tsv,sep='\t')
+        df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
+        df.rename(columns={'#Core_gene':'Core_gene'},inplace=True)
+        df['[Hits_listed]'] = df['[Hits_listed]'].str.replace('[','').str.replace(']','').str.split('; ')
+        df = df.explode('[Hits_listed]')
+        df['Contig'] = df['[Hits_listed]'].str.split('|').str[0].str.split(' ').str[0]
+        df['HitStart'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[0]
+        df['HitEnd'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[1]
+        df['HitStrand'] = df['[Hits_listed]'].str.split('|').str[4].str.split(' ').str[2]
+        df.drop(columns=['[Hits_listed]'],inplace=True)
+
     return df
-    
+
 def readTSVdupTable(tsv):
     df = pd.read_csv(tsv,sep='\t')
     df['Sample'] = str(os.path.basename(os.path.dirname(os.path.dirname(str(tsv)))))
