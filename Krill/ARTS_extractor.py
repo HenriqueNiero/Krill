@@ -206,7 +206,7 @@ def readTSVKnownHits(tsv):
               .str.split("|").str[6]
               .str.split("_").str[2]
         )
-        df.drop(columns=["Sequence description"], inplace=True)
+        #df.drop(columns=["Sequence description"], inplace=True)
 
     else:
         # if -noprep is activated
