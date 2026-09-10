@@ -26,4 +26,5 @@ conda run -n "${ENV}" bigscape cluster \
         --mibig-version 4.0 \
         --classify category \
         --pfam-path "${PFAM}" \
+        --record-type cand_cluster \
         --cores "${THREADS}"
