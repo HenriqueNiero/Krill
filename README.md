@@ -63,10 +63,9 @@ R packages:
 
 ## :dvd: INSTALLATION
 
-<details><summary>INSTALLING AntiSMASH</summary>
+<details><summary>INSTALLING KRILL</summary>
 <p>
 
-INSTALLING Krill
 
 1. Create a conda environment for Krill
 
@@ -106,11 +105,20 @@ Python packages:
 r-base-core
 
 
+</p>
+</details>
+
+
+<details><summary>INSTALLING ANTISMASH</summary>
+<p>
+
 Installing AntiSMASH inside Krill environment
 
-'''
+```
+conda activate Krill
 conda install -c conda-forge -c bioconda -c defaults antismash==6.1.1
-'''
+```
+
 Copy the record_processing.py file from Krill github repository and paste into the antismash folder inside Krill environment (substitute the existing one)
 /envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
 
@@ -144,10 +152,10 @@ git clone https://bitbucket.org/ziemertlab/arts.git
 
 The reference metagenome folder is used in Krill
 
-'''
+```
 cd /envs/ARTS/arts/reference
 wget https://arts.ziemertlab.com/static/zip_refsets/all_references.zip
-'''
+```
 
 Unzip all_references.zip file
 
@@ -162,15 +170,15 @@ The final folder structure must be /envs/ARTS/arts/reference/metagenome/
 
 
 
-<details><summary>INSTALLING BiG-SCAPE via Conda</summary>
+<details><summary>INSTALLING BIG-SCAPE via Conda</summary>
 
 <p>
     
 1. Create a conda environment and install BiG-SCAPE
 
-'''
+```
 conda create -n bigscape -c conda-forge -c bioconda bigscape
-'''
+```
 
 2. Download the Pfam-A.hmm.gz phmm database
 
@@ -232,11 +240,11 @@ flowchart TB
 
 Krill can be run with the command line in a linux terminal
 
-'''
+```
 cd /path/to/folder/where/Krill/was/downloaded/
 conda activate Krill
 python3 Krill /home/user/path/to/folder/where/Krill/was/downloaded/example -noprep --bigscape --pfam-path /home/user/path/to/Pfam/database/Pfam-A.hmm
-'''
+```
 
 
 ```
