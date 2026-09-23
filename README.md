@@ -75,7 +75,7 @@ conda create -n Krill
 
 2. Clone Krill github repository
 
-        Navigate to the folder where Krill will be downloaded
+Navigate to the folder where Krill will be downloaded
 
 ```
 git clone https://github.com/HenriqueNiero/Krill.git
@@ -83,26 +83,26 @@ git clone https://github.com/HenriqueNiero/Krill.git
 
 3. Install pre-requisite packages
 
-        python=3.9.23
+python=3.9.23
 
-        Ubuntu/Linux packages:
-            hmmsearch
-            hmmer=3.1b2
-            gawk
-            parallel=20260422
-            seqkit=2.13.0
+Ubuntu/Linux packages:
+   hmmsearch
+   hmmer=3.1b2
+   gawk
+   parallel=20260422
+   seqkit=2.13.0
 
-        Python packages:
-            pandas=2.3.1
-            matplotlib=3.9.4
-            cprint
-            numpy=1.26.4
-            biopython=1.78
-            tqdm
-            Xlsxwriter
-            pyScss=1.4.0
+Python packages:
+   pandas=2.3.1
+   matplotlib=3.9.4
+   cprint
+   numpy=1.26.4
+   biopython=1.78
+   tqdm
+   Xlsxwriter
+   pyScss=1.4.0
 
-        r-base-core
+r-base-core
 
 </p>
 </details>
