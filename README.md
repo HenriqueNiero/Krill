@@ -19,7 +19,7 @@ Krill is a tool designed to aid in the analysis of genomic data with a focus on 
 <p align="justify">The package was developed with financial support from the Foundation for Research and Innovation Support of the State of Santa Catarina (FAPESC, process 2020TR1448) and the São Paulo Research Foundation (FAPESP, process 2019/27306-9), as well as the Brazilian National Institute of Science and Technology - INCT-Mar COI (CNPq, Process 400551/2014–4). We also wish to thank the Coordination for the Improvement of Higher Education (CAPES) for the scholarships provided to H.N. (88887.146746/2017–00). A.O.S.L. was further supported by CNPq (312363/2018–4). D.B.B.T. and P.B. also acknowledge funding from the Serrapilheira Institute (Serra-1709–19681 and associated fellowship ref. 3659).</p>
 
 Package Features:
-1. Data pre-processing for contigs extraction; 
+1. Data pre-processing for contigs extraction (updating); 
 2. Extraction of biosynthetic gene clusters (BGCs); 
 3. Annotation of resistance genes; 
 4. Similarity analysis and annotation of biosynthetic families; 
@@ -63,50 +63,62 @@ R packages:
 
 ## :dvd: INSTALLATION
 
-<details><summary>INSTALLING AntiSMASH via Docker</summary>
+<details><summary>INSTALLING AntiSMASH</summary>
 <p>
-    
-1. Pull [AntiSMASH Docker Image](https://hub.docker.com/r/antismash/standalone)
-    
-```
-docker pull antismash/standalone
-```
-    
-2. Prepare AntiSMASH run scripts
-    
-```
-mkdir ~/bin    # not required if you already have that
-curl -q https://dl.secondarymetabolites.org/releases/6.1.1/docker-run_antismash-full > ~/bin/run_antismash
-chmod a+x ~/bin/run_antismash
-export PATH="$HOME/bin:$PATH"
-```
-    
-3. Test installation
-    
-```
-run_antismash . . --version
-```
-    
-or
-    
-```
-run_antismash . . --version
-```
-    
+
+INSTALLING Krill
+
+1. Create a conda environment for Krill
+
+'''
+conda create -n Krill
+'''
+
+2. Clone Krill github repository
+
+Navigate to the folder where Krill will be downloaded
+
+'''
+git clone https://github.com/HenriqueNiero/Krill.git
+'''
+
+3. Install pre-requisite packages
+
+python=3.9.23
+
+Ubuntu/Linux packages:
+1. hmmsearch
+2. hmmer=3.1b2
+3. gawk
+4. parallel=20260422
+5. seqkit=2.13.0
+
+Python packages:
+1. pandas=2.3.1
+2. matplotlib=3.9.4
+3. cprint
+4. numpy=1.26.4
+5. biopython=1.78
+6. tqdm
+7. Xlsxwriter
+8. pyScss=1.4.0
+
+r-base-core
+
+
+Installing AntiSMASH inside Krill environment
+
+'''
+conda install -c conda-forge -c bioconda -c defaults antismash==6.1.1
+'''
+Copy the record_processing.py file from Krill github repository and paste into the antismash folder inside Krill environment (substitute the existing one)
+/envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
+
+
 </p>
 </details>
 
-<details><summary>INSTALLING AntiSMASH via Conda</summary>
-<p>
-    
-1. Install AntiSMASH using conda
-    
-```
-conda install -c bioconda antismash
-```
 
-</p>
-</details>
 
 <details><summary>INSTALLING ARTS via Conda</summary>
 
@@ -127,23 +139,52 @@ cd /path/to/ARTS/environment/
 git clone https://bitbucket.org/ziemertlab/arts.git
 ```
 
+
+4. Download additional reference models for ARTS
+
+The reference metagenome folder is used in Krill
+
+'''
+cd /envs/ARTS/arts/reference
+wget https://arts.ziemertlab.com/static/zip_refsets/all_references.zip
+'''
+
+Unzip all_references.zip file
+
+Replace the "reference" folder in ARTS environment with the new one
+
+The final folder structure must be /envs/ARTS/arts/reference/metagenome/
+
+
 </p>
     
 </details>
 
-<details><summary>GETTING ARTS REFERENCES</summary>
+
+
+<details><summary>INSTALLING BiG-SCAPE via Conda</summary>
 
 <p>
     
-1. Download [Krill's specific ARTS references](https://bitbucket.org/krill-arts-reference/krillartsreference/downloads/) 
-    
-2. Unzip the file
-3. Replace the "reference" folder in ARTS environment with the new one
+1. Create a conda environment and install BiG-SCAPE
+
+'''
+conda create -n bigscape -c conda-forge -c bioconda bigscape
+'''
+
+2. Download the Pfam-A.hmm.gz phmm database
+
+Follow [Installing and Running BiG-SCAPE] (https://github.com/medema-group/BiG-SCAPE/wiki/01.-Installing-and-Running-BiG-SCAPE) from BiG-SCAPE repository
+
+Download the Pfam database inside Krill directory
+
+Unzip the file
+
+
 
 </p>
     
 </details>
-
 
 
 ## :woman_teacher: PREPARING YOUR FILES
@@ -188,6 +229,16 @@ flowchart TB
 </details>
     
 ## :woman_technologist: USING
+
+Krill can be run with the command line in a linux terminal
+
+'''
+cd /path/to/folder/where/Krill/was/downloaded/
+conda activate Krill
+python3 Krill /home/user/path/to/folder/where/Krill/was/downloaded/example -noprep --bigscape --pfam-path /home/user/path/to/Pfam/database/Pfam-A.hmm
+'''
+
+
 ```
 Krill [OPTIONS] PATH
 ```
@@ -202,9 +253,12 @@ optional arguments:
   -h, --help            show this help message and exit
   -noprep, --do_not_prepare_fasta_files
                         Rename fasta files, its headers and store changes in a CSV file for control [DEFAULT: TRUE]
+  --bigscape            Run Krill with BiG-SCAPE analysis
+  --pfam-path           Path to BiG-SCAPE Pfam phmm database                      
   -t THREADS, --threads THREADS
                         Threads to use in analysis [DEFAULT: 16]
   --citation            Shows how to cite us
+
 ```
 
 ## Contributors 
