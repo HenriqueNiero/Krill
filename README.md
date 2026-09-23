@@ -86,21 +86,21 @@ git clone https://github.com/HenriqueNiero/Krill.git
 python=3.9.23
 
 Ubuntu/Linux packages:
-   hmmsearch
-   hmmer=3.1b2
-   gawk
-   parallel=20260422
-   seqkit=2.13.0
+   hmmsearch  
+   hmmer=3.1b2  
+   gawk  
+   parallel=20260422  
+   seqkit=2.13.0  
 
 Python packages:
-   pandas=2.3.1
-   matplotlib=3.9.4
-   cprint
-   numpy=1.26.4
-   biopython=1.78
-   tqdm
-   Xlsxwriter
-   pyScss=1.4.0
+   pandas=2.3.1  
+   matplotlib=3.9.4  
+   cprint  
+   numpy=1.26.4  
+   biopython=1.78  
+   tqdm  
+   Xlsxwriter  
+   pyScss=1.4.0  
 
 r-base-core
 
