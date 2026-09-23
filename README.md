@@ -85,22 +85,22 @@ git clone https://github.com/HenriqueNiero/Krill.git
 
 python=3.9.23
 
-Ubuntu/Linux packages:
-   hmmsearch  
-   hmmer=3.1b2  
-   gawk  
-   parallel=20260422  
-   seqkit=2.13.0  
+Ubuntu/Linux packages:  
+hmmsearch  
+hmmer=3.1b2  
+gawk  
+parallel=20260422  
+seqkit=2.13.0  
 
-Python packages:
-   pandas=2.3.1  
-   matplotlib=3.9.4  
-   cprint  
-   numpy=1.26.4  
-   biopython=1.78  
-   tqdm  
-   Xlsxwriter  
-   pyScss=1.4.0  
+Python packages:  
+pandas=2.3.1  
+matplotlib=3.9.4  
+cprint  
+numpy=1.26.4  
+biopython=1.78  
+tqdm  
+Xlsxwriter  
+pyScss=1.4.0  
 
 r-base-core
 
@@ -113,15 +113,15 @@ r-base-core
 <details><summary>INSTALLING ANTISMASH</summary>
 <p>
 
-    Installing AntiSMASH inside Krill environment
+Installing AntiSMASH inside Krill environment
 
 ```
 conda activate Krill
 conda install -c conda-forge -c bioconda -c defaults antismash==6.1.1
 ```
 
-    Copy the record_processing.py file from Krill github repository and paste into the antismash folder inside Krill environment (substitute the existing one).  
-    /envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
+Copy the record_processing.py file from Krill github repository and paste into the antismash folder inside Krill environment (substitute the existing one).  
+/envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
 
 
 </p>
@@ -152,18 +152,18 @@ git clone https://bitbucket.org/ziemertlab/arts.git
 
 4. Download additional reference models for ARTS
 
-    The reference metagenome folder is used in Krill
+The reference metagenome folder is used in Krill
 
 ```
 cd /envs/ARTS/arts/reference
 wget https://arts.ziemertlab.com/static/zip_refsets/all_references.zip
 ```
 
-    Unzip all_references.zip file
+Unzip all_references.zip file
 
-    Replace the "reference" folder in ARTS environment with the new one
+Replace the "reference" folder in ARTS environment with the new one
 
-    The final folder structure must be /envs/ARTS/arts/reference/metagenome/
+The final folder structure must be /envs/ARTS/arts/reference/metagenome/
 
 
 </p>
