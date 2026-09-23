@@ -69,17 +69,17 @@ R packages:
 
 1. Create a conda environment for Krill
 
-'''
+```
 conda create -n Krill
-'''
+```
 
 2. Clone Krill github repository
 
 Navigate to the folder where Krill will be downloaded
 
-'''
+```
 git clone https://github.com/HenriqueNiero/Krill.git
-'''
+```
 
 3. Install pre-requisite packages
 
