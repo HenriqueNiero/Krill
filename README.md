@@ -1,9 +1,6 @@
 # Krill
-New modifications developed at LNBio-CNPEM.
 
-Version modifications:
-1. Updated rename, build tables with reference to original contig fasta headers.
-2.
+An Integrated Bioprospecting Platform for Biosynthetic Gene Cluster Prioritization.
 
 ## :mag_right: SUMMARY
 1. :scroll: ABOUT
@@ -55,13 +52,16 @@ git clone https://github.com/HenriqueNiero/Krill.git
 
 3. Install pre-requisite packages
 
-python=3.9.23
+python=3.9
 
-Ubuntu/Linux packages:  
+Ubuntu/Linux Packages:  
 hmmsearch  
-hmmer=3.1b2  
 gawk  
 parallel=20260422  
+r-base-core  
+
+Conda Packages:
+hmmer=3.1b2  
 seqkit=2.13.0  
 
 Python packages:  
@@ -71,10 +71,9 @@ cprint
 numpy=1.26.4  
 biopython=1.78  
 tqdm  
-Xlsxwriter  
+Xlsxwriter=3.2.9  
 pyScss=1.4.0  
 
-r-base-core
 
 </p>
 </details>
