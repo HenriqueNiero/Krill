@@ -227,10 +227,7 @@ wget https://arts.ziemertlab.com/static/zip_refsets/all_references.zip
 Unzip the downloaded file and replace the existing reference directory with the downloaded reference directory.
 
 The expected structure is:  
-ARTS/
-└── arts/
-    └── reference/
-        └── metagenome/
+ARTS/arts/reference/metagenome/
 
 
 Verify ARTS
