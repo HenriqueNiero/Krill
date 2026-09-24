@@ -4,10 +4,13 @@ An Integrated Bioprospecting Platform for Biosynthetic Gene Cluster Prioritizati
 
 ## :mag_right: SUMMARY
 1. :scroll: ABOUT
-2. :electric_plug: PRE-REQUISITES
-3. :dvd: INSTALLATION
-4. :woman_teacher: PREPARING YOUR FILES
-5. :woman_technologist: USING
+2. :sunny: OVERVIEW
+3. :electric_plug: PRE-REQUISITES
+4. :dvd: INSTALLATION
+5. :woman_teacher: PREPARING YOUR FILES
+6. :woman_technologist: USING
+7. :file_folder: OUTPUT
+
 
 ## :scroll: ABOUT
 
@@ -15,16 +18,52 @@ Krill is a tool designed to aid in the analysis of genomic data with a focus on 
 
 <p align="justify">The package was developed with financial support from the Foundation for Research and Innovation Support of the State of Santa Catarina (FAPESC, process 2020TR1448) and the São Paulo Research Foundation (FAPESP, process 2019/27306-9), as well as the Brazilian National Institute of Science and Technology - INCT-Mar COI (CNPq, Process 400551/2014–4). We also wish to thank the Coordination for the Improvement of Higher Education (CAPES) for the scholarships provided to H.N. (88887.146746/2017–00). A.O.S.L. was further supported by CNPq (312363/2018–4). D.B.B.T. and P.B. also acknowledge funding from the Serrapilheira Institute (Serra-1709–19681 and associated fellowship ref. 3659).</p>
 
-Package Features:
+Key Features:
 1. Data pre-processing for contigs extraction (updating); 
 2. Extraction of biosynthetic gene clusters (BGCs); 
 3. Annotation of resistance genes; 
 4. Similarity analysis and annotation of biosynthetic families; 
 5. Curation of prospected clusters. 
 
+
+## :sunny: OVERVIEW
+
+                  FASTA / MAGs
+                       │
+                       ▼
+              FASTA preparation
+                       │
+                       ▼
+                   antiSMASH
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+          BGC detection       BGC annotation
+              │
+              ▼
+             ARTS
+              │
+       ┌──────┼──────┐
+       ▼      ▼      ▼
+    Known   Core   Duplicate
+    hits    genes    genes
+       │      │      │
+       └──────┼──────┘
+              ▼
+          BiG-SCAPE
+              │
+              ▼
+       Krill integration
+              │
+              ▼
+       GCF / similarity
+              │
+              ▼
+       Prioritized BGCs
+
 ## :electric_plug: PRE-REQUISITES
 1. Ubuntu 20.04
-2. Python 3.X
+2. Python 3.9
 3. R
 4. Conda
 
@@ -34,6 +73,11 @@ Package Features:
 
 <details><summary>INSTALLING KRILL</summary>
 <p>
+
+Krill requires three Conda environments:  
+- Krill  
+- ARTS  
+- bigscape  
 
 
 1. Create a conda environment for Krill
@@ -75,6 +119,18 @@ Xlsxwriter=3.2.9
 pyScss=1.4.0  
 
 
+Verify
+```
+conda activate Krill
+python --version
+which python
+```
+```
+cd /path/to/Krill
+python3 Krill -h
+```
+
+
 </p>
 </details>
 
@@ -95,6 +151,13 @@ Copy the record_processing.py file from Krill github repository and paste into t
 /envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
 
 
+Verify
+```
+conda activate Krill
+antismash --version
+which antismash
+```
+
 </p>
 </details>
 
@@ -104,7 +167,9 @@ Copy the record_processing.py file from Krill github repository and paste into t
 <details><summary>INSTALLING ARTS via Conda</summary>
 
 <p>
-    
+
+ARTS release = 3.0b2
+
 1. Download environment spec list file from this repository (arts_specs.txt)
     
 2. Create a conda environment for ARTS using the spec list file
@@ -123,7 +188,9 @@ git clone https://bitbucket.org/ziemertlab/arts.git
 
 4. Download additional reference models for ARTS
 
-The reference metagenome folder is used in Krill
+Krill requires the ARTS reference datasets, including the metagenome
+reference set.
+
 
 ```
 cd /envs/ARTS/arts/reference
@@ -134,7 +201,22 @@ Unzip all_references.zip file
 
 Replace the "reference" folder in ARTS environment with the new one
 
-The final folder structure must be /envs/ARTS/arts/reference/metagenome/
+Expected location:
+ARTS/arts/reference/metagenome/
+
+
+Verify
+```
+conda activate ARTS
+python --version
+which python
+```
+```
+cd /path/to/ARTS
+python artspipeline1.py --help
+```
+
+
 
 
 </p>
@@ -147,14 +229,16 @@ The final folder structure must be /envs/ARTS/arts/reference/metagenome/
 <details><summary>INSTALLING BIG-SCAPE via Conda</summary>
 
 <p>
-    
+
+Krill is runing with BiG-SCAPE version 2.0.3.
+
 1. Create a conda environment and install BiG-SCAPE
 
 ```
 conda create -n bigscape -c conda-forge -c bioconda bigscape
 ```
 
-2. Download the Pfam-A.hmm.gz phmm database
+2. Download the Pfam-A.hmm.gz phmm database (lastest release tested in Krill: RELEASE 38.2)
 
     Follow [Installing and Running BiG-SCAPE](https://github.com/medema-group/BiG-SCAPE/wiki/01.-Installing-and-Running-BiG-SCAPE) from BiG-SCAPE repository
 
@@ -162,6 +246,16 @@ conda create -n bigscape -c conda-forge -c bioconda bigscape
 
     Unzip the file
 
+
+(Note: Documentation for BiG-SCAPE installation include obtaining Pfam-A.hmm and preparing it with hmmpress)
+
+
+Verify
+```
+conda activate bigscape
+python --version
+bigscape --help
+```
 
 
 </p>
@@ -234,7 +328,7 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -noprep, --do_not_prepare_fasta_files
-                        Rename fasta files, its headers and store changes in a CSV file for control [DEFAULT: TRUE]
+                        Skip FASTA preparation and use the input files names as provided
   --bigscape            Run Krill with BiG-SCAPE analysis
   --pfam-path           Path to BiG-SCAPE Pfam phmm database                      
   -t THREADS, --threads THREADS
@@ -242,6 +336,22 @@ optional arguments:
   --citation            Shows how to cite us
 
 ```
+
+
+
+## :file_folder: OUTPUT
+
+Krill generates an output directory containing, among others:
+
+- BGC cluster annotations
+- ARTS resistance/core/duplicate gene results
+- integrated BGC tables
+- BiG-SCAPE GCF/network results
+- prioritized BGC information
+- intermediate files required for traceability
+
+
+
 
 ## Contributors 
 <table>
