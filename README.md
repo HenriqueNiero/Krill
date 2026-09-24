@@ -30,36 +30,8 @@ Package Features:
 2. Python 3.X
 3. R
 4. Conda
-5. AntiSMASH
-6. ARTS
 
-Ubuntu/Linux packages:
-1. hmmsearch
-2. gawk
-3. parallel
-4. seqkit
 
-Python packages:
-1. Pandas
-2. Matplotlib
-3. CPRINT
-4. Numpy
-5. Biopython
-6. TQDM
-7. Xlsxwriter
-8. pyScss
-
-R packages:
-1. ggplot2
-2. dplyr
-3. stringr
-4. tidyr
-5. gridExtra
-6. igraph
-7. plotly
-8. vegan
-9. reshape2
-10. MASS
 
 ## :dvd: INSTALLATION
 
