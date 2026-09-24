@@ -14,7 +14,10 @@ An Integrated Bioprospecting Platform for Biosynthetic Gene Cluster Prioritizati
 
 ## :scroll: ABOUT
 
-Krill is a tool designed to aid in the analysis of genomic data with a focus on biosynthetic gene clusters (BGCs).
+Krill is a computational platform designed to support the analysis and prioritization of biosynthetic gene clusters (BGCs) from genomic data.
+
+Krill integrates BGC detection, resistance-gene annotation, biosynthetic gene-cluster similarity analysis, and BGC curation to support the identification of clusters of potential interest for downstream investigation.
+
 
 <p align="justify">The package was developed with financial support from the Foundation for Research and Innovation Support of the State of Santa Catarina (FAPESC, process 2020TR1448) and the São Paulo Research Foundation (FAPESP, process 2019/27306-9), as well as the Brazilian National Institute of Science and Technology - INCT-Mar COI (CNPq, Process 400551/2014–4). We also wish to thank the Coordination for the Improvement of Higher Education (CAPES) for the scholarships provided to H.N. (88887.146746/2017–00). A.O.S.L. was further supported by CNPq (312363/2018–4). D.B.B.T. and P.B. also acknowledge funding from the Serrapilheira Institute (Serra-1709–19681 and associated fellowship ref. 3659).</p>
 
@@ -23,10 +26,12 @@ Key Features:
 2. Extraction of biosynthetic gene clusters (BGCs); 
 3. Annotation of resistance genes; 
 4. Similarity analysis and annotation of biosynthetic families; 
-5. Curation of prospected clusters. 
+5. Curation and prioritization of BGCs. 
 
 
 ## :sunny: OVERVIEW
+
+Krill integrates multiple computational analyses into a single BGC prioritization workflow:
 
                   FASTA / MAGs
                        │
@@ -61,12 +66,32 @@ Key Features:
               ▼
        Prioritized BGCs
 
-## :electric_plug: PRE-REQUISITES
-1. Ubuntu 20.04
-2. Python 3.9
-3. R
-4. Conda
+The main components of the workflow are:
 
+antiSMASH — identification and annotation of biosynthetic gene clusters.
+ARTS — analysis of resistance-associated genes, core genes, and duplicated genes.
+BiG-SCAPE — BGC similarity analysis and gene-cluster family (GCF) assignment.
+Krill — integration and organization of the results for BGC prioritization.
+
+
+## :electric_plug: PRE-REQUISITES
+
+Krill has been developed and tested in a Linux environment.
+
+Operating system  
+- Ubuntu 20.04 or compatible Linux distribution
+
+Required software  
+- Python 3.9  
+- R  
+- Conda  
+
+Krill uses three Conda environments:  
+- Krill  
+- ARTS  
+- bigscape  
+
+The environments should be kept separate because ARTS, Krill, and BiG-SCAPE have different software dependencies.
 
 
 ## :dvd: INSTALLATION
@@ -74,16 +99,11 @@ Key Features:
 <details><summary>INSTALLING KRILL</summary>
 <p>
 
-Krill requires three Conda environments:  
-- Krill  
-- ARTS  
-- bigscape  
-
-
 1. Create a conda environment for Krill
 
 ```
-conda create -n Krill
+conda create -n Krill python=3.9
+conda activate Krill
 ```
 
 2. Clone Krill github repository
@@ -96,35 +116,34 @@ git clone https://github.com/HenriqueNiero/Krill.git
 
 3. Install pre-requisite packages
 
-python=3.9
-
 Ubuntu/Linux Packages:  
-hmmsearch  
-gawk  
-parallel=20260422  
-r-base-core  
+- hmmsearch  
+- gawk  
+- parallel=20260422  
+- r-base-core  
 
-Conda Packages:
-hmmer=3.1b2  
-seqkit=2.13.0  
+Conda Packages:  
+- hmmer=3.1b2  
+- seqkit=2.13.0  
 
 Python packages:  
-pandas=2.3.1  
-matplotlib=3.9.4  
-cprint  
-numpy=1.26.4  
-biopython=1.78  
-tqdm  
-Xlsxwriter=3.2.9  
-pyScss=1.4.0  
+- pandas=2.3.1  
+- matplotlib=3.9.4  
+- cprint  
+- numpy=1.26.4  
+- biopython=1.78  
+- tqdm  
+- Xlsxwriter=3.2.9  
+- pyScss=1.4.0  
 
 
-Verify
+Verify the Krill environment
 ```
 conda activate Krill
 python --version
 which python
 ```
+Then
 ```
 cd /path/to/Krill
 python3 Krill -h
@@ -147,11 +166,13 @@ conda activate Krill
 conda install -c conda-forge -c bioconda -c defaults antismash==6.1.1
 ```
 
-Copy the record_processing.py file from Krill github repository and paste into the antismash folder inside Krill environment (substitute the existing one).  
+Krill includes a modified record_processing.py.
+
+Copy the version provided in the Krill repository to the antiSMASH installation and replace the existing file:
+
 /envs/Krill/lib/python3.9/site-packages/antismash/common/record_processing.py
 
-
-Verify
+Verify AntiSMASH
 ```
 conda activate Krill
 antismash --version
@@ -168,17 +189,17 @@ which antismash
 
 <p>
 
-ARTS release = 3.0b2
+Krill uses ARTS release 3.0b2.
 
-1. Download environment spec list file from this repository (arts_specs.txt)
+1. Download ARTS environment specification file from the Krill repository (arts_specs.txt)
     
 2. Create a conda environment for ARTS using the spec list file
     
 ```
-conda create -n "ARTS" --file /path/to/spec-file.txt
+conda create -n ARTS --file /path/to/spec-file.txt
 ```
  
-3. Download ARTS project into the conda environment using git
+3. Clone the ARTS repository into the ARTS environment:
     
 ```
 cd /path/to/ARTS/environment/
@@ -186,31 +207,39 @@ git clone https://bitbucket.org/ziemertlab/arts.git
 ```
 
 
-4. Download additional reference models for ARTS
+4. Install the ARTS reference datasets
 
 Krill requires the ARTS reference datasets, including the metagenome
 reference set.
 
+Navigate to the ARTS reference directory:
 
 ```
 cd /envs/ARTS/arts/reference
+```
+
+Download the reference dataset:
+
+```
 wget https://arts.ziemertlab.com/static/zip_refsets/all_references.zip
 ```
 
-Unzip all_references.zip file
+Unzip the downloaded file and replace the existing reference directory with the downloaded reference directory.
 
-Replace the "reference" folder in ARTS environment with the new one
+The expected structure is:  
+ARTS/
+└── arts/
+    └── reference/
+        └── metagenome/
 
-Expected location:
-ARTS/arts/reference/metagenome/
 
-
-Verify
+Verify ARTS
 ```
 conda activate ARTS
 python --version
 which python
 ```
+Then
 ```
 cd /path/to/ARTS
 python artspipeline1.py --help
@@ -230,7 +259,7 @@ python artspipeline1.py --help
 
 <p>
 
-Krill is runing with BiG-SCAPE version 2.0.3.
+Krill uses BiG-SCAPE 2.0.3.
 
 1. Create a conda environment and install BiG-SCAPE
 
@@ -238,19 +267,30 @@ Krill is runing with BiG-SCAPE version 2.0.3.
 conda create -n bigscape -c conda-forge -c bioconda bigscape
 ```
 
-2. Download the Pfam-A.hmm.gz phmm database (lastest release tested in Krill: RELEASE 38.2)
+Activate it
+```
+conda activate bigscape
+```
 
-    Follow [Installing and Running BiG-SCAPE](https://github.com/medema-group/BiG-SCAPE/wiki/01.-Installing-and-Running-BiG-SCAPE) from BiG-SCAPE repository
+2. Install the Pfam database
 
-    Download the Pfam database inside Krill directory
+Krill has been tested with Pfam release 38.2.
 
-    Unzip the file
+Follow [Installing and Running BiG-SCAPE](https://github.com/medema-group/BiG-SCAPE/wiki/01.-Installing-and-Running-BiG-SCAPE) from BiG-SCAPE repository
+
+Download the Pfam database Pfam-A.hmm.gz
+
+Place the Pfam database in an appropriate location accessible to Krill and decompress it
+
+```
+gunzip Pfam-A.hmm.gz
+```
 
 
-(Note: Documentation for BiG-SCAPE installation include obtaining Pfam-A.hmm and preparing it with hmmpress)
+(Note: Depending on the BiG-SCAPE installation, the Pfam database may also need to be prepared with hmmpress.)
 
 
-Verify
+Verify BiG-SCAPE
 ```
 conda activate bigscape
 python --version
@@ -306,14 +346,45 @@ flowchart TB
     
 ## :woman_technologist: USING
 
-Krill can be run with command line in a linux terminal
+Krill is run from a Linux terminal.
+
+Activate the Krill environment:
 
 ```
-cd /path/to/folder/where/Krill/was/downloaded/
 conda activate Krill
-python3 Krill /home/user/path/to/folder/where/Krill/was/downloaded/example -noprep --bigscape --pfam-path /home/user/path/to/Pfam/database/Pfam-A.hmm
 ```
 
+Navigate to the Krill directory:
+
+```
+cd /path/to/Krill
+```
+
+Basic analysis
+
+```
+python3 Krill /path/to/input/folder
+```
+
+Run with BiG-SCAPE
+
+```
+python3 Krill /path/to/input/folder --bigscape --pfam-path /path/to/Pfam-A.hmm
+```
+
+
+Skip FASTA preparation
+
+If the input FASTA files have already been prepared and their names and headers should be preserved:  
+The -noprep option skips FASTA preparation and uses the input files and headers as provided.
+
+
+```
+python3 Krill /path/to/input/folder -noprep --bigscape --pfam-path /path/to/Pfam-A.hmm
+```
+
+
+Command-line options
 
 ```
 Krill [OPTIONS] PATH
@@ -328,7 +399,7 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -noprep, --do_not_prepare_fasta_files
-                        Skip FASTA preparation and use the input files names as provided
+                        Skip FASTA preparation and use the input files names and headers as provided
   --bigscape            Run Krill with BiG-SCAPE analysis
   --pfam-path           Path to BiG-SCAPE Pfam phmm database                      
   -t THREADS, --threads THREADS
@@ -349,6 +420,23 @@ Krill generates an output directory containing, among others:
 - BiG-SCAPE GCF/network results
 - prioritized BGC information
 - intermediate files required for traceability
+
+
+
+Krill generates an output directory containing intermediate and final results from the different stages of the analysis.
+
+Depending on the analysis performed, the output includes:
+
+- BGC cluster annotations
+- ARTS resistance-gene results
+- ARTS core-gene results
+- ARTS duplicate-gene results
+- Integrated BGC tables
+- BiG-SCAPE GCF and network results
+- Prioritized BGC information
+- Intermediate files required for traceability
+
+The intermediate files are retained to facilitate inspection of individual analysis steps and troubleshooting.
 
 
 
