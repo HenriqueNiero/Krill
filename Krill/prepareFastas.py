@@ -15,7 +15,11 @@ def convert2fasta(path):
 def run(path,ext):
 	cprint.ok('# Preparing input files and its metadata...')
 	os.chdir(path)
+	
 	if not os.path.isfile(os.path.join(path,'fastaFilesRenamed.tsv')):
+		# Get dataset name from the input directory
+		dataset_name = os.path.basename(os.path.normpath(path))
+		
 		#get folder and files
 		fastas = Path(path).glob('*.{}'.format(ext))
 
@@ -26,20 +30,19 @@ def run(path,ext):
 		for f in fastas:			
 			# print(f)
 			basename = str(os.path.basename(f))
-			new_name = f'{count:09d}.{ext}'
+			# New filename: Dataset_000000001.fasta
+			new_name = f'{dataset_name}_{count:09d}.{ext}'
 			os.rename(basename, new_name)
 			base.append([basename,  new_name])
-			# Define your pattern and file path
-			# Run the awk command: awk '/pattern/ {print}' 
-			# Split the output by lines and clean up any trailing empty lines	
+			# Get original FASTA headers	
 			fileresult = subprocess.run(["awk", f"/^>/", new_name], capture_output=True, text=True)
 			original_contigs = [line[1:] for line in fileresult.stdout.splitlines() if line]
-			# print(original_contigs)
+			# Rename FASTA header using the new filename
 			cmd_rename_fasta = '''gawk -i inplace '/^>/{print ">" substr(FILENAME,1,length(FILENAME)-%i); next} 1' %s''' % (len(ext)+1,new_name)
 			cmd_rename_fasta_headers = f"""awk '{{if (/^>/) print ">"substr($0,2)"_"(++i); else print $0;}}' {new_name} > tmp && mv tmp {new_name}"""
 			subprocess.run(cmd_rename_fasta, shell=True, executable='/bin/bash')
 			subprocess.run(cmd_rename_fasta_headers, shell=True, executable='/bin/bash')
-			# Split the output by lines and clean up any trailing empty lines	
+			# Get new FASTA headers	
 			fileresult = subprocess.run(["awk", f"/^>/", new_name], capture_output=True, text=True)
 			new_contigs = [line[1:] for line in fileresult.stdout.splitlines() if line]
 			# print(new_contigs)
