@@ -2,6 +2,8 @@
 """
 Krill BiG-SCAPE integration.
 
+Use for --record-type cand_cluster
+
 This module combines the three post-processing steps previously performed by
 separate scripts:
 
@@ -23,6 +25,7 @@ import re
 import pandas as pd
 from Bio import SeqIO
 
+pd.set_option("display.max_columns", None)
 
 def _clean(value):
     """Return a stripped string, or an empty string for NaN/None."""
@@ -434,6 +437,8 @@ def build_bigscape_extraction_table(
             errors="coerce",
         ).astype("Int64")
 
+    print("\n >>>>>>bigscape_integration.py\n")
+
     coordinates = coordinates.copy()
     coordinates["GBK"] = coordinates["GBK"].map(_normalise_gbk_name)
     coordinates["Record_Type"] = (
@@ -504,6 +509,9 @@ def build_bigscape_extraction_table(
         how="left",
     )
 
+    print("\n >>>>>>bigscape_integration.py\n")
+    print("\n records :\n", records)
+
     # Merge annotations and clustering by BiG-SCAPE Record.
     annotations_small = records[
         [
@@ -513,11 +521,15 @@ def build_bigscape_extraction_table(
         ]
     ].drop_duplicates(subset=["Record"])
 
+    print("\n annotations_small after drop_duplicates:\n", annotations_small)
+
     bigscape = mix.merge(
         annotations_small,
         on="Record",
         how="left",
     )
+
+    print("\n bigscape after merge:\n", bigscape)
 
     # Keep names used by the final Krill integration.
     bigscape["contig"] = bigscape["contig"].fillna(
@@ -530,10 +542,13 @@ def build_bigscape_extraction_table(
     bigscape["End"] = pd.to_numeric(bigscape["End"], errors="coerce").astype("Int64")
 
     # Remove possible duplicate rows before the final merge.
+    print("\n bigscape before drop_duplicates:\n", bigscape)
     bigscape = bigscape.drop_duplicates(
         subset=["contig", "Start", "End"],
         keep="first",
     ).reset_index(drop=True)
+
+    print("\n bigscape after drop_duplicates:\n", bigscape)
 
     output_file = os.path.join(
         bigscape_dir,

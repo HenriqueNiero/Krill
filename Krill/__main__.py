@@ -12,6 +12,7 @@ import run_AntiSMASH_and_ARTS
 import get_dbs_metainfo
 import build_charts
 import run_bigscape
+import run_bigscape_analysis
 from bigscape_integration import integrate_bigscape_with_krill
 
 default_threads = len(os.sched_getaffinity(0))
@@ -32,6 +33,10 @@ parser.add_argument("--bigscape_mibig", default=None)
 parser.add_argument('--citation',help='Shows how to cite us',action='store_true')
 parser.add_argument('PATH',help='Working path with fasta files',type=str)
 parser.add_argument("--pfam-path", dest="pfam", default=None, help="Path to Pfam-A.hmm")
+parser.add_argument("--bigscape-analysis", action="store_true", default=False, help="Run the optional BiG-SCAPE category analysis on an existing BiG-SCAPE database")
+parser.add_argument("--bigscape-analysis-threshold", type=float, default=0.3, help="Distance threshold used for BiG-SCAPE singleton classification [DEFAULT: 0.3]")
+parser.add_argument("--bigscape-analysis-permutations", type=int, default=999, help="Number of permutations used for PERMANOVA/PERMDISP [DEFAULT: 999]")
+
 
 
 
@@ -122,6 +127,10 @@ if args.bigscape:
 if args.bigscape:
   cprint.info("# Integrating BiG-SCAPE results with Krill...")
   integrate_bigscape_with_krill(path=args.PATH, cutoff=args.bigscape_cutoff)
+
+if args.bigscape_analysis:
+  cprint.info("# Running optional category analysis for BiG-SCAPE results...")
+  run_bigscape_analysis.run(path=args.PATH, env=args.bigscape_env, threshold=args.bigscape_analysis_threshold, permutations=args.bigscape_analysis_permutations)
 
 cprint.info('# Building charts...')
 build_charts.build_charts(args.PATH)

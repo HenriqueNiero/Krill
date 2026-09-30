@@ -8,8 +8,8 @@ def run(path, threads=8, cutoff="0.30", env="bigscape", pfam=None):
     print("\n ################## run_bigscape.py #################")
     print("\n> project_dir: ", project_dir)
     print("\n> db: ", path)
-    input_dir = path
-    output_dir = os.path.join(path, "BiGSCAPE")
+    input_dir = os.path.abspath(path)   
+    output_dir = os.path.join(input_dir, "BiGSCAPE")
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -18,7 +18,8 @@ def run(path, threads=8, cutoff="0.30", env="bigscape", pfam=None):
 
     if os.path.exists(flag):
         print("BiG-SCAPE already completed.")
-        return
+
+        return output_dir
 
 
     try:
@@ -36,9 +37,16 @@ def run(path, threads=8, cutoff="0.30", env="bigscape", pfam=None):
             check=True
         )
 
-    except subprocess.CalledProcessError:
+
+    except subprocess.CalledProcessError as error:
+
         raise RuntimeError(
-            f"BiG-SCAPE failed"
+            f"BiG-SCAPE failed with exit code "
+            f"{error.returncode}"
         )
 
     open(flag, "w").close()
+
+    print("\nBiG-SCAPE completed successfully.")
+
+    return output_dir
