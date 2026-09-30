@@ -286,6 +286,14 @@ gunzip Pfam-A.hmm.gz
 
 (Note: Depending on the BiG-SCAPE installation, the Pfam database may also need to be prepared with hmmpress.)
 
+3. For the optional category analysis, install bigscape environment additional packages
+
+Check if all packages are already installed
+```
+python -c "import numpy, pandas, matplotlib, seaborn, sklearn, networkx, scipy; print('BiG-SCAPE analysis dependencies OK')"
+```
+
+
 
 Verify BiG-SCAPE
 ```
