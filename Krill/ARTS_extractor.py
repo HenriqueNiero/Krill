@@ -15,7 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from ast import literal_eval
 import re
 
-pd.set_option('display.max_columns', 10)
 
 def prepare_extraction(path):
     
@@ -52,8 +51,7 @@ def ARTS_overview(path):
     referencia_clusters = list(pathlib.Path(path).glob("**/*clust.tsv"))
     referencia_knownhits = list(pathlib.Path(path).glob("**/**/knownhits.tsv"))
     referencia_coregenes = list(pathlib.Path(path).glob("**/**/coretable.tsv"))
-    print("\n###############   ARTS_extractor.py   #################")
-    print("\n> referencia_coregenes line 54: ", referencia_coregenes)
+    print("\n###############   ARTS_extractor.py   #################\n")
     referencia_duplic = list(pathlib.Path(path).glob("**/**/duptable.tsv"))
     
     CDS_count = []
@@ -119,11 +117,10 @@ def ARTS_overview(path):
     clusters_df = pd.DataFrame(clusters_count, columns=['Sample','Clusters'])
     hits_df = pd.DataFrame(hits_count, columns=['Sample','Known Resistence Hits'])
     core_df = pd.DataFrame(core_count, columns=['Sample','Core Genes'])
-    print("\n> core_df line 121: ", core_df)
     dup_df = pd.DataFrame(dup_count, columns=['Sample','Duplicated'])
     bgc_prox_df = pd.DataFrame(bgc_prox_count, columns=['Sample','BGC Proximity'])
     
-    print('Total CDSs: ', sum(CDS_df['CDS']), 
+    print('\n\nTotal CDSs: ', sum(CDS_df['CDS']), 
           '\nTotal clusters: ', sum(clusters_df['Clusters']),
           '\nTotal Known Resistence Hits: ', sum(hits_df['Known Resistence Hits']),
           '\nTotal Core Genes: ', sum(core_df['Core Genes']),
@@ -181,8 +178,6 @@ def readTSVKnownHits(tsv):
     # Add conditional structure to change how tables are constucted. If -noprep is activated it will look for contig names inside .fna files
     if os.path.exists(rename_contigs_file):
         # If -noprep is deactivated
-        print("\n")
-        print(f"Using renamed {rename_contigs_file} in ARTS KnownHits tables")
 
         df["Contig"] = (
             df["Sequence description"]
