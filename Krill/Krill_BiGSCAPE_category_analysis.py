@@ -929,9 +929,6 @@ def identify_missing_user_pairs(
             }
         )
 
-    print("\n >>>>>>>>> Kril_BiGSCAPE_category_analysis >>>>>>>>>>>")
-    print("\n rows: \n", rows)
-
     return pd.DataFrame(rows)
 
 
@@ -961,13 +958,6 @@ def select_gbk_representatives_from_missing_pairs(
     the named same-GBK missing pairs. BGCs from unaffected GBKs are
     retained.
 
-    This is useful when building the distance matrix for PcoA analysis,
-    because the specific same gbk pair distance missing values break
-    the matrix. The two options are: excluding all distance pair calculations 
-    involving same gbk BGCs or keeping one of the BGCs. The largest one 
-    is the candidate cluster that comprises the most information from 
-    within the detected region.
-
     BiG-SCAPE 2 stores BGC coordinates in ``bgc_record.nt_start``
     and ``bgc_record.nt_stop``; those are accepted directly. Common
     ``Start``/``End`` aliases are also supported for compatibility.
@@ -979,8 +969,6 @@ def select_gbk_representatives_from_missing_pairs(
 
     candidates = user_candidates.copy()
     candidates["id"] = pd.to_numeric(candidates["id"], errors="coerce")
-
-    print("\n cadidates: \n", candidates)
 
     # --------------------------------------------------------
     # Identify same-GBK missing pairs
@@ -1288,6 +1276,8 @@ def subset_complete_case_distance(
 
     d = distance.copy()
 
+    print("\n distance d table from subset_complete_case_distance before function: \n ", d )
+
 
     '''
     d = d[
@@ -1386,8 +1376,6 @@ def build_distance_matrix(
         dtype=float
     )
 
-    print("\n matrix line 1391: \n", matrix)
-
     # Use a writable copy. Newer pandas/NumPy combinations can expose
     # DataFrame.values as read-only.
     matrix_array = matrix.to_numpy(copy=True)
@@ -1397,8 +1385,6 @@ def build_distance_matrix(
         index=ids,
         columns=ids
     )
-
-    print("\n matrix after matrix_array fill diagonal: \n", matrix)
 
     for row in d.itertuples(index=False):
 
@@ -1423,8 +1409,6 @@ def build_distance_matrix(
                 value
             )
 
-
-    print("\n matrix line 1429: \n", matrix)
     return matrix
 
 
@@ -3874,33 +3858,6 @@ def main():
         index=False
     )
 
-
-    # ========================================================
-    # 12.5. Statistics
-    # ========================================================
-
-    observed_results = None
-
-    if len(complete_ids) >= 2:
-        try:
-            observed_results = (
-                run_complete_statistics(
-                    observed_complete,
-                    output_prefix,
-                    label="observed_complete_case",
-                    permutations=args.permutations
-                )
-            )
-
-        except ValueError as e:
-
-            print("\nObserved complete-case analysis could not be completed:")
-            print(f"  {e}")
-
-    else:
-
-        print("\nNot enough complete-case BGCsmfor ordination/statistics.")
-
     # ========================================================
     # 13. Save core tables
     # ========================================================
@@ -3989,37 +3946,6 @@ def main():
         "observed_complete_case_BGCs": len(complete_ids),
         "observed_excluded_BGCs": len(excluded_ids)
     }
-
-    # --------------------------------------------------------
-    # Add original complete-case statistical results
-    # --------------------------------------------------------
-
-    if observed_results is not None:
-
-        (
-            observed_matrix,
-            observed_metadata,
-            observed_perm,
-            observed_disp,
-            observed_pairwise
-        ) = observed_results
-
-        summary.update(
-            {
-                "observed_complete_case_databases":
-                    observed_metadata.nunique(),
-                "observed_complete_case_PERMANOVA_p":
-                    observed_perm["p_value"],
-                "observed_complete_case_PERMANOVA_R2":
-                    observed_perm["R2"],
-                "observed_complete_case_PERMANOVA_pseudo_F":
-                    observed_perm["pseudo_F"],
-                "observed_complete_case_PERMDISP_p":
-                    observed_disp["p_value"],
-                "observed_complete_case_PERMDISP_F":
-                    observed_disp["F"]
-            }
-        )
 
     summary_file = (
         output_prefix +
