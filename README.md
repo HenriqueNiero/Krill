@@ -58,6 +58,9 @@ Krill integrates multiple computational analyses into a single BGC prioritizatio
           BiG-SCAPE
               │
               ▼
+          BiG-SLICE
+              │
+              ▼
        Krill integration
               │
               ▼
@@ -71,6 +74,7 @@ The main components of the workflow are:
 antiSMASH — identification and annotation of biosynthetic gene clusters.
 ARTS — analysis of resistance-associated genes, core genes, and duplicated genes.
 BiG-SCAPE — BGC similarity analysis and gene-cluster family (GCF) assignment.
+BiG-SLICE — GCF models building (BIRCH clustering) and membership assignment.
 Krill — integration and organization of the results for BGC prioritization.
 
 
@@ -308,6 +312,56 @@ bigscape --help
 </details>
 
 
+<details><summary>INSTALLING BIG-SLICE</summary>
+
+<p>
+
+
+1. Create a conda environment for BiG-SLICE
+
+```
+conda create -n bigslice
+```
+
+Activate it
+```
+conda activate bigscape
+```
+
+2. Install BiG-SLICE with pip
+
+
+```
+pip install bigslice
+```
+
+
+3. Fetch the latest HMM models (± 271MB gzipped)
+
+```
+download_bigslice_hmmdb
+```
+
+Check your installation
+```
+bigslice --version
+```
+
+Make sure that packages are compatible with BiG-SLICE:
+BiG-SLICE source code and birch.py code were updated to [support latest versions of pyhmmer and scikit-learn.](https://github.com/karman011/bigslice/commit/817c473041a07be9f1fad6ebdc541e9f343239b3)
+
+Update these codes inside installed BiG-SLICE directories.
+```
+/home/User/miniconda/envs/bigslice/bin/bigslice
+/home/User/miniconda/envs/bigslice/lib/python3.14/site-packages/bigslice/modules/clustering/birch.py
+```
+
+
+</p>
+    
+</details>
+
+
 ## :woman_teacher: PREPARING YOUR FILES
 
 Krill works in a single folder with fasta files or in a folder with different Projects MAGs (multiple folders). For this second option, it needs to have a [specific folder organization](example/) to start the analysis:
@@ -342,6 +396,16 @@ flowchart TB
     end
 ```
 
+
+Metadata file:
+
+
+A file named metadata_krill.tsv with MAGs metadata information must be suppied to Krill.
+The file needs to have the columns DataBase and OriginalContig (as in the file provided in this repository).
+Put the file inside /path/example folder.
+
+
+
 #### Printscreen Scheme
 <p align="center">
     <img src="https://user-images.githubusercontent.com/50638088/184180804-c794655e-3e4c-4509-b38a-3f63eac7c0d5.png"/>
@@ -368,13 +432,23 @@ cd /path/to/Krill
 Basic analysis
 
 ```
-python3 Krill /path/to/input/folder
+python3 Krill /path/to/input/folder/example
 ```
 
 Run with BiG-SCAPE
 
 ```
-python3 Krill /path/to/input/folder --bigscape --pfam-path /path/to/Pfam-A.hmm
+python3 Krill /path/to/input/folder/example --bigscape --pfam-path /path/to/Pfam-A.hmm
+```
+
+Run with BiG-SLICE
+
+A file indicating the genomes taxonomy for each dataset must be provided, as specified in the [BiG-SLICE documentation.](https://github.com/medema-group/bigslice/wiki/Input-folder)
+The name of the genomes must be the same name as the genomes files from the Krill input.
+
+
+```
+python3 Krill /path/to/input/folder --bigslice --taxonomy-path /path/to/taxonomy.tsv
 ```
 
 
@@ -385,7 +459,7 @@ The -noprep option skips FASTA preparation and uses the input files and headers 
 
 
 ```
-python3 Krill /path/to/input/folder -noprep --bigscape --pfam-path /path/to/Pfam-A.hmm
+python3 Krill /path/to/input/folder/example -noprep --bigscape --pfam-path /path/to/Pfam-A.hmm
 ```
 
 
@@ -406,6 +480,7 @@ optional arguments:
   -noprep, --do_not_prepare_fasta_files
                         Skip FASTA preparation and use the input files names and headers as provided
   --bigscape            Run Krill with BiG-SCAPE analysis
+  --bigslice            Run Krill with BiG-SLICE analysis
   --pfam-path           Path to BiG-SCAPE Pfam phmm database                      
   -t THREADS, --threads THREADS
                         Threads to use in analysis [DEFAULT: 16]
