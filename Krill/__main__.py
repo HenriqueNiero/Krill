@@ -38,22 +38,26 @@ parser.add_argument("--bigscape-analysis-threshold", type=float, default=0.3, he
 parser.add_argument("--bigscape-analysis-permutations", type=int, default=999, help="Number of permutations used for PERMANOVA/PERMDISP [DEFAULT: 999]")
 
 
-
-
 args = parser.parse_args()
 
-
-
+root_path = os.path.abspath(args.PATH)
 root_database = False
-# Get databases (directories) paths if the root directory has them, otherwise work with the root itself
 dbs = []
-for x in os.listdir(args.PATH):
-  if os.path.isdir(os.path.join(args.PATH,x)):
-    dbs.append(os.path.join(args.PATH,x))
-  else:
+# Find database directories inside the input directory.
+# Files such as taxonomy_krill are intentionally ignored.
+for x in os.listdir(root_path):
+    full_path = os.path.join(root_path, x)
+
+    if os.path.isdir(full_path):
+        dbs.append(os.path.abspath(full_path))
+
+# If no database directories exist, the input directory itself is a single database.
+if not dbs:
     root_database = True
-    dbs.append(args.PATH)
-    break
+    dbs.append(root_path)
+
+args.PATH = root_path
+
 
 
 # Convert all files extensions (fa, fna, etc) to "fasta"

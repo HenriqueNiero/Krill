@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Oct  5 11:26:42 2021
-
-@author: saulo
-"""
 import pandas as pd
 import pathlib, os
 import ast, numpy as np
@@ -23,6 +17,110 @@ def df2xlsx(path, sheet_name, df):
 
 def get_csvs(path,pattern):
     return list(pathlib.Path(path).glob('**/{}'.format(pattern)))
+
+def add_metadata_to_bgc_table(table_clean, path):
+    """
+    Add metadata information from <path>/metadata_krill.tsv to DBs_BGCs_with_Hits.
+
+    The composite key is:
+        Database + OriginalName
+
+    All metadata columns from metadata_krill, except Database and
+    OriginalName, are added to the corresponding BGC rows.
+    """
+    metadata_path = os.path.join(path, "metadata_krill.tsv")
+
+    if not os.path.isfile(metadata_path):
+        raise FileNotFoundError(
+            "Required metadata file was not found: {}".format(metadata_path)
+        )
+
+    # sep=None lets pandas detect tab- or comma-separated metadata_krill files.
+    metadata = pd.read_csv(
+        metadata_path,
+        sep=None,
+        engine="python",
+        dtype="object"
+    )
+
+    key_columns = ["Database", "OriginalName"]
+    missing_keys = [col for col in key_columns if col not in metadata.columns]
+    if missing_keys:
+        raise ValueError(
+            "metadata_krill is missing required key column(s): {}".format(
+                ", ".join(missing_keys)
+            )
+        )
+
+    missing_bgc_keys = [col for col in key_columns if col not in table_clean.columns]
+    if missing_bgc_keys:
+        raise ValueError(
+            "DBs_BGCs_with_Hits is missing required key column(s): {}".format(
+                ", ".join(missing_bgc_keys)
+            )
+        )
+
+    metadata_columns = [
+        col for col in metadata.columns
+        if col not in key_columns
+    ]
+
+    if not metadata_columns:
+        raise ValueError(
+            "metadata_krill contains Database and OriginalName, "
+            "but no metadata columns to add."
+        )
+
+    # The Database + OriginalName combination must identify one metadata
+    # record. Otherwise a merge would duplicate BGC rows.
+    duplicated_keys = metadata.duplicated(
+        subset=key_columns,
+        keep=False
+    )
+
+    if duplicated_keys.any():
+        duplicated = metadata.loc[
+            duplicated_keys, key_columns
+        ].drop_duplicates()
+
+        raise ValueError(
+            "metadata_krill contains duplicate Database + OriginalName "
+            "keys. Each BGC must have a unique metadata record. "
+            "Duplicated keys: {}".format(
+                duplicated.to_dict("records")
+            )
+        )
+
+    # Strip accidental whitespace from the join keys without changing
+    # the metadata values themselves.
+    for col in key_columns:
+        table_clean[col] = table_clean[col].astype("string").str.strip()
+        metadata[col] = metadata[col].astype("string").str.strip()
+
+    metadata_for_merge = metadata[
+        key_columns + metadata_columns
+    ].copy()
+
+    table_clean = table_clean.merge(
+        metadata_for_merge,
+        how="left",
+        on=key_columns,
+        sort=False,
+        validate="many_to_one"
+    )
+
+    matched = table_clean[metadata_columns].notna().any(axis=1).sum()
+    total = len(table_clean)
+
+    print(
+        "metadata added from '{}': {}/{} BGC rows matched "
+        "using Database + OriginalName.".format(
+            metadata_path, matched, total
+        )
+    )
+
+    return table_clean
+
 
 def map_products_to_category(product):
     replacement_rules = {
@@ -219,6 +317,10 @@ def get(path, ext, root_database):
             table_clean["product_bigscape"] = table_clean["product"].apply(map_products_to_category)
             table_clean.insert(table_clean.columns.get_loc("product") + 1,"product_bigscape",table_clean.pop("product_bigscape"))
 
+            # Add metadata information from metadata_krill using
+            # Database + OriginalName as the composite key.
+            table_clean = add_metadata_to_bgc_table(table_clean, path)
+
             # Save files
             table_clean.to_csv(os.path.join(path, "DBsReportOutput/DBs_" + f),index=False,sep="\t")
             f = f.replace("tsv", "xlsx")
@@ -231,3 +333,5 @@ def get(path, ext, root_database):
 
 if __name__ == '__main__':
     get('/media/bioinfo/6tb_hdd/03_ELLEN/krill_runs/NCBI_PROJECTS/','.fasta')
+
+
