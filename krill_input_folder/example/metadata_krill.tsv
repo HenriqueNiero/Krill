@@ -1,0 +1,5 @@
+Database	OriginalName	environment	gtdbtk_domain	gtdbtk_phylum	gtdbtk_class	gtdbtk_order	gtdbtk_family	gtdbtk_genus	gtdbtk_species
+DeceptionIsland	MAG_DI_001	marine, antarctic, sediment	Bacteria	Aquificota	Aquificia	Aquificales	Hydrogenothermaceae	Hydrogenothermus	Hydrogenothermus sp.
+DeceptionIsland	MAG_DI_002	marine, antarctic, sediment	Bacteria	Bacteroidota	Bacteroidia	Flavobacteriales	Flavobacteriaceae	Spongiivirga	Spongiivirga sp.
+LlaimaVolcano	MAG_LV_001	soil	Bacteria	Actinomycetota	Actinomycetes	Micromonosporales	Micromonosporaceae	Salinispora	Salinispora tropica
+LlaimaVolcano	MAG_LV_002	soil, vulcanic	Bacteria	Acidobacteriota	Terriglobia	Acidiferrales	UBA7541	Palsa-295	Palsa-295 sp.
