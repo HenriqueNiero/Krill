@@ -479,9 +479,58 @@ Then, BiG-SLICE results can be integrated into krill using a separate command wi
 python analysis_bigslice_krill.py --db /path/to/input/folder/example/BiGSLICE/output/result/data.db --bigslice-analysis-threshold 0.4 --bigslice-analysis-bins 6
 ```
 
+
+BiG-SLICE command-line options
+
+```
+usage: analysis_bigslice_krill.py [-h] [--project-root PROJECT_ROOT] [--db DB]
+                                  [--bigslice-analysis-threshold THRESHOLD]
+                                  [--bigslice-analysis-bins NUMBER_OF_BINS] [--dataset-keyword DATASET_KEYWORD] 
+                                  [--target-taxon TARGET_TAXON]
+                                  [--taxon-rank TAXON_RANK] [--description-keyword DESCRIPTION_KEYWORD [DESCRIPTION_KEYWORD ...]] [--top-n TOP_N]
+                                  [--random-seed RANDOM_SEED] [--tree-dpi TREE_DPI] [--tree-label-font-size TREE_LABEL_FONT_SIZE] [--hide-tree-labels]
+
+Analyse BiG-SLiCE results and generate GCC tree/metadata for Krill.
+
+options:
+  -h, --help            show this help message and exit
+  --project-root PROJECT_ROOT
+                        Krill project directory containing source_files/ (default: current directory).
+  --db DB               Optional path to BiG-SLiCE data.db; overrides the default under project root.
+  --bigslice-analysis-threshold, --threshold THRESHOLD
+                        BiG-SLiCE clustering threshold to analyse (default: first threshold in the database).
+  --bigslice-analysis-bins, --number-of-bins NUMBER_OF_BINS
+                        Number of K-means GCC bins (default: 520, as in analysis.ipynb).
+  --dataset-keyword DATASET_KEYWORD
+                        Dataset name/keyword for Analysis 1. If omitted, analyse every dataset in the database plus an aggregate analysis using all
+                        datasets.
+  --target-taxon TARGET_TAXON
+                        Taxon substring for Analysis 2. If omitted, report the 10 most abundant Family taxa by BGC count and analyse each of those
+                        families.
+  --taxon-rank TAXON_RANK
+                        Taxonomy column to search when --target-taxon is supplied (default: Phylum). When --target-taxon is omitted, Family is used.
+  --description-keyword DESCRIPTION_KEYWORD [DESCRIPTION_KEYWORD ...]
+                        One or more keywords for Analysis 3. Supply multiple terms separated by spaces, or repeat this option. If omitted, use the built-
+                        in environmental/host keyword list and analyse every term that matches dataset descriptions. Default descriptions keywords =
+                        coastal, estuarine, estuary, sediment, benthic, abyssal, deep-sea, hydrothermal, vent, brackish, saline, hypersaline, salt marsh,
+                        mangrove, coral, sponge, freshwater, lake, river, stream, pond, rhizosphere, rhizoplane, root-associated, phyllosphere,
+                        endophytic, peat, peatland, bog, wetland, permafrost, glacier, snow, polar, volcanic, geothermal, hot spring, arid, desert, crust,
+                        cave, subsurface, speleothem, symbiont, symbiotic, comensal, pathogen, pathogenic, virulence, skin, oral, nasal, gut, fecal,
+                        stool, rumen, cecum, gastrointestinal, insect, vector, nematode, lichen, algal, phycosphere, sludge, activated sludge, wastewater,
+                        effluent, sewage, fermentation, bioreactor, compost, acidic, alkaline, acidophile, alkaliphile, halophile, thermophile,
+                        psychrophile, contaminated, bioremediation, oil, petroleum, soil, ice, ocean, forest, marine, coastal, estuarine.
+  --top-n TOP_N         Maximum number of GCC bins profiled by each exploratory analysis (default: 100).
+  --random-seed RANDOM_SEED
+                        Random seed for K-means and dataset annotation colors.
+  --tree-dpi TREE_DPI   Resolution for the publication PNG (default: 600 dpi).
+  --tree-label-font-size TREE_LABEL_FONT_SIZE
+                        Font size for GCC leaf labels in the tree image (default: 4).
+  --hide-tree-labels    Hide individual GCC labels for a less crowded tree figure.
+```
+
 <br>
 
-Command-line options
+KRILL command-line options
 
 ```
 Krill [OPTIONS] PATH
