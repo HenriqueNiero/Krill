@@ -24,13 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-noprep','--do_not_prepare_fasta_files',help='Rename fasta files, its headers and store changes in a CSV file for control [DEFAULT: TRUE]',action='store_true')
 parser.add_argument('-t','--threads',help='Threads to use in analysis [DEFAULT: {}]'.format(default_threads),type=int,default=default_threads)
 parser.add_argument("--bigscape", action="store_true", help="Run BiG-SCAPE2 after antiSMASH")
-parser.add_argument("--bigscape_env", default="bigscape", help="Conda environment containing BiG-SCAPE2")
 parser.add_argument("--bigscape_cutoff", default="0.3", help="BiG-SCAPE cutoff (default 0.3)")
-parser.add_argument("--bigscape_mix", action="store_true", default=True)
-parser.add_argument("--bigscape_classify", default="category", choices=["category","class","legacy","none"])
-parser.add_argument("--bigscape_include_singletons", action="store_true")
-parser.add_argument("--bigscape_mibig", default=None)
-parser.add_argument('--citation',help='Shows how to cite us',action='store_true')
 parser.add_argument('PATH',help='Working path with fasta files',type=str)
 parser.add_argument("--pfam-path", dest="pfam", default=None, help="Path to Pfam-A.hmm")
 parser.add_argument("--bigscape-analysis", action="store_true", default=False, help="Run the optional BiG-SCAPE category analysis on an existing BiG-SCAPE database")
@@ -39,6 +33,14 @@ parser.add_argument("--bigscape-analysis-permutations", type=int, default=999, h
 
 
 args = parser.parse_args()
+
+# Fixed BiG-SCAPE settings
+args.bigscape_env = "bigscape"
+args.bigscape_mix = True
+args.bigscape_classify = "category"
+args.bigscape_include_singletons = True
+
+
 
 root_path = os.path.abspath(args.PATH)
 root_database = False
