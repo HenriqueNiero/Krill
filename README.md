@@ -426,32 +426,44 @@ Basic analysis
 python3 Krill /path/to/input/folder/example
 ```
 
+Skip FASTA preparation
+
+If the input FASTA files have already been prepared and their names and headers should be preserved:  
+The -noprep option skips FASTA preparation and uses the input files and headers as provided.
+
+```
+python3 Krill /path/to/input/folder/example -noprep
+```
+
+
 Run with BiG-SCAPE
 
 ```
 python3 Krill /path/to/input/folder/example --bigscape --pfam-path /path/to/Pfam-A.hmm
 ```
 
-Run with BiG-SLICE
+Run BiG-SLICE
 
 A file indicating the genomes taxonomy for each dataset must be provided, as specified in the [BiG-SLICE documentation.](https://github.com/medema-group/bigslice/wiki/Input-folder)
-The name of the genomes must be the same name as the genomes files from the Krill input.
+The name of the genomes must be the same name as the genomes files from the Krill input.  
 
-
-```
-python3 Krill /path/to/input/folder --bigslice --taxonomy-path /path/to/taxonomy.tsv
-```
-
-
-Skip FASTA preparation
-
-If the input FASTA files have already been prepared and their names and headers should be preserved:  
-The -noprep option skips FASTA preparation and uses the input files and headers as provided.
-
+For now, Krill is not running with BiG-SLICE.
 
 ```
-python3 Krill /path/to/input/folder/example -noprep --bigscape --pfam-path /path/to/Pfam-A.hmm
+conda activate bigslice
+
+bigslice -i /path/to/input/folder/example/BiGSLICE/input/ /path/to/input/folder/example/BiGSLICE/output --threshold 0.4
 ```
+
+Then, BiG-SLICE results can be integrated into krill using a separate command with:
+
+```
+python analysis_bigslice_krill.py --db /path/to/input/folder/example/BiGSLICE/output/result/data.db --bigslice-analysis-threshold 0.4 --bigslice-analysis-bins 6
+```
+
+
+</p>
+</p>
 
 
 Command-line options
