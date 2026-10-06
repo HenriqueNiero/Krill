@@ -462,7 +462,8 @@ Krill [OPTIONS] PATH
 
 ```
 usage: Krill [-h] [-noprep] [-t THREADS] [--bigscape] [--bigscape_cutoff BIGSCAPE_CUTOFF]
-             [--pfam-path PFAM] [--bigscape-analysis] [--bigscape-analysis-threshold BIGSCAPE_ANALYSIS_THRESHOLD]
+             [--pfam-path PFAM] [--bigscape-analysis]
+             [--bigscape-analysis-threshold BIGSCAPE_ANALYSIS_THRESHOLD]
              [--bigscape-analysis-permutations BIGSCAPE_ANALYSIS_PERMUTATIONS] PATH
 
 positional arguments:
