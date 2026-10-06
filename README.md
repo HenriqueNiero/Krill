@@ -460,10 +460,10 @@ Then, BiG-SLICE results can be integrated into krill using a separate command wi
 ```
 python analysis_bigslice_krill.py --db /path/to/input/folder/example/BiGSLICE/output/result/data.db --bigslice-analysis-threshold 0.4 --bigslice-analysis-bins 6
 ```
-
-
-</p>
-</p>
+  
+  
+  
+  
 
 
 Command-line options
