@@ -11,6 +11,7 @@ An Integrated Bioprospecting Platform for Biosynthetic Gene Cluster Prioritizati
 6. :woman_technologist: USING
 7. :file_folder: OUTPUT
 
+<br>
 
 ## :scroll: ABOUT
 
@@ -28,6 +29,7 @@ Key Features:
 4. Similarity analysis and annotation of biosynthetic families; 
 5. Curation and prioritization of BGCs. 
 
+<br>
 
 ## :sunny: OVERVIEW
 
@@ -77,6 +79,7 @@ BiG-SCAPE — BGC similarity analysis and gene-cluster family (GCF) assignment.
 BiG-SLICE — GCF models building (BIRCH clustering) and membership assignment.
 Krill — integration and organization of the results for BGC prioritization.
 
+<br>
 
 ## :electric_plug: PRE-REQUISITES
 
@@ -97,6 +100,7 @@ Krill uses three Conda environments:
 
 The environments should be kept separate because ARTS, Krill, and BiG-SCAPE have different software dependencies.
 
+<br>
 
 ## :dvd: INSTALLATION
 
@@ -361,6 +365,7 @@ Update these codes inside installed BiG-SLICE directories.
     
 </details>
 
+<br>
 
 ## :woman_teacher: PREPARING YOUR FILES
 
@@ -401,31 +406,33 @@ Put the file inside /path/example/ folder.
 
 </p>
 </p>
-    
+<br>
+
 ## :woman_technologist: USING
 
 Krill is run from a Linux terminal.
 
 An [example](https://github.com/HenriqueNiero/Krill/tree/main/krill_input_folder/example) folder is provided for testing Krill and to ensure correct folder structure.  
 
+<br>
 Activate the Krill environment:
 
 ```
 conda activate Krill
 ```
-
+<br>
 Navigate to the Krill directory:
 
 ```
 cd /path/to/Krill
 ```
-
+<br>
 Basic analysis
 
 ```
 python3 Krill /path/to/input/folder/example
 ```
-
+<br>
 Skip FASTA preparation
 
 If the input FASTA files have already been prepared and their names and headers should be preserved:  
@@ -435,13 +442,14 @@ The -noprep option skips FASTA preparation and uses the input files and headers 
 python3 Krill /path/to/input/folder/example -noprep
 ```
 
-
+<br>
 Run with BiG-SCAPE
 
 ```
 python3 Krill /path/to/input/folder/example --bigscape --pfam-path /path/to/Pfam-A.hmm
 ```
 
+<br>
 Run BiG-SLICE
 
 A file indicating the genomes taxonomy for each dataset must be provided, as specified in the [BiG-SLICE documentation.](https://github.com/medema-group/bigslice/wiki/Input-folder)
@@ -461,7 +469,6 @@ Then, BiG-SLICE results can be integrated into krill using a separate command wi
 python analysis_bigslice_krill.py --db /path/to/input/folder/example/BiGSLICE/output/result/data.db --bigslice-analysis-threshold 0.4 --bigslice-analysis-bins 6
 ```
 
-<br>
 <br>
 
 Command-line options
@@ -502,7 +509,6 @@ optional arguments:
 ```
 
 <br>
-<br>
 
 ## :file_folder: OUTPUT
 
@@ -533,7 +539,7 @@ Depending on the analysis performed, the output includes:
 The intermediate files are retained to facilitate inspection of individual analysis steps and troubleshooting.
 
 
-
+<br>
 
 ## Contributors 
 <table>
