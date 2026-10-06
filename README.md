@@ -463,8 +463,6 @@ python analysis_bigslice_krill.py --db /path/to/input/folder/example/BiGSLICE/ou
 
 <br>
 <br>
-<br>
-
 
 Command-line options
 
@@ -503,6 +501,8 @@ optional arguments:
 
 ```
 
+<br>
+<br>
 
 ## :file_folder: OUTPUT
 
