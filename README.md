@@ -372,8 +372,7 @@ Krill works in a folder with different Projects MAGs (multiple folders) and a me
 <p>
     
 #### Flowchart Scheme
-```mermaid
-
+```
 /path/to/folder/example/  
         \___Project_A  
         |       \___MAG_001  
@@ -384,10 +383,10 @@ Krill works in a folder with different Projects MAGs (multiple folders) and a me
         |       \___MAG_B_002  
         |       \___MAG_C_003  
         \___Project_C  
-                \___MAG_C_001  
-                \___MAG_C_002  
-                \___MAG_C_003  
-        metadata.tsv  
+        |       \___MAG_C_001  
+        |       \___MAG_C_002  
+        |       \___MAG_C_003  
+        \___metadata.tsv  
 ```
 
 
