@@ -2,6 +2,8 @@
 
 An Integrated Bioprospecting Platform for Biosynthetic Gene Cluster Prioritization.
 
+<br>
+
 ## :mag_right: SUMMARY
 1. :scroll: ABOUT
 2. :sunny: OVERVIEW
@@ -446,7 +448,7 @@ python3 Krill /path/to/input/folder/example -noprep
 Run with BiG-SCAPE
 
 ```
-python3 Krill /path/to/input/folder/example --bigscape --pfam-path /path/to/Pfam-A.hmm
+python3 Krill /path/to/input/folder/example -noprep --bigscape --pfam-path /path/to/Pfam-A.hmm
 ```
 
 <br>
