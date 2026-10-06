@@ -407,6 +407,8 @@ Put the file inside /path/example/ folder.
 
 Krill is run from a Linux terminal.
 
+An [example](https://github.com/HenriqueNiero/Krill/tree/main/krill_input_folder/example) folder is provided for testing Krill and to ensure correct folder structure.  
+
 Activate the Krill environment:
 
 ```
