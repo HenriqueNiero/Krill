@@ -364,7 +364,7 @@ Update these codes inside installed BiG-SLICE directories.
 
 ## :woman_teacher: PREPARING YOUR FILES
 
-Krill works in a single folder with fasta files or in a folder with different Projects MAGs (multiple folders). For this second option, it needs to have a [specific folder organization](example/) to start the analysis:
+Krill works in a folder with different Projects MAGs (multiple folders) and a metadata file. It needs to have a [specific folder organization](https://github.com/HenriqueNiero/Krill/tree/main/krill_input_folder/example) to start the analysis:
 
 > :warning: DO NOT USE SPACES IN FOLDERS AND FILES NAMES, IT CAN CAUSE ERRORS.
 
@@ -373,42 +373,32 @@ Krill works in a single folder with fasta files or in a folder with different Pr
     
 #### Flowchart Scheme
 ```mermaid
-flowchart TB
-    subgraph A[example/ - Main folder]
-        subgraph B[PRJNA602601/ ]
-        E[MAG_1.fasta]
-        F[MAG_2.fasta]
-        G[MAG_3.fasta]
-        N[...]
-        end
-        subgraph C[Project_B/ ]
-        H[MAG_1.fasta]
-        I[MAG_2.fasta]
-        J[MAG_3.fasta]
-        O[...]
-        end
-        subgraph D[Project_C/ ]
-        K[MAG_1.fasta]
-        L[MAG_2.fasta]
-        M[MAG_3.fasta]
-        P[...]
-        end
-    end
+
+/path/to/folder/example/  
+        \___Project_A  
+        |       \___MAG_001  
+        |       \___MAG_002  
+        |       \___MAG_003  
+        \___Project_B  
+        |       \___MAG_B_001  
+        |       \___MAG_B_002  
+        |       \___MAG_C_003  
+        \___Project_C  
+                \___MAG_C_001  
+                \___MAG_C_002  
+                \___MAG_C_003  
+        metadata.tsv  
 ```
 
 
 Metadata file:
 
 
-A file named metadata_krill.tsv with MAGs metadata information must be suppied to Krill.
-The file needs to have the columns DataBase and OriginalContig (as in the file provided in this repository).
-Put the file inside /path/example folder.
+A file named metadata_krill.tsv with MAGs metadata information must be suppied to Krill.  
+The file needs to have the columns DataBase and OriginalContig (as in the file provided in this repository).  
+Put the file inside /path/example/ folder.
 
 
-
-#### Printscreen Scheme
-<p align="center">
-    <img src="https://user-images.githubusercontent.com/50638088/184180804-c794655e-3e4c-4509-b38a-3f63eac7c0d5.png"/>
 </p>
 </p>
 </details>
