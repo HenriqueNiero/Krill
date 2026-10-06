@@ -368,8 +368,9 @@ Krill works in a folder with different Projects MAGs (multiple folders) and a me
 
 > :warning: DO NOT USE SPACES IN FOLDERS AND FILES NAMES, IT CAN CAUSE ERRORS.
 
-<details><summary>FOLDERS AND FILES STRUCTURE</summary>
-<p>
+FOLDERS AND FILES STRUCTURE
+
+
     
 #### Folder Scheme
 ```
@@ -400,7 +401,6 @@ Put the file inside /path/example/ folder.
 
 </p>
 </p>
-</details>
     
 ## :woman_technologist: USING
 
