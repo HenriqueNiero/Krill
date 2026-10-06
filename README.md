@@ -371,21 +371,21 @@ Krill works in a folder with different Projects MAGs (multiple folders) and a me
 <details><summary>FOLDERS AND FILES STRUCTURE</summary>
 <p>
     
-#### Flowchart Scheme
+#### Folder Scheme
 ```
 /path/to/folder/example/  
-        \___Project_A  
-        |       \___MAG_001  
-        |       \___MAG_002  
-        |       \___MAG_003  
-        \___Project_B  
-        |       \___MAG_B_001  
-        |       \___MAG_B_002  
-        |       \___MAG_C_003  
-        \___Project_C  
-        |       \___MAG_C_001  
-        |       \___MAG_C_002  
-        |       \___MAG_C_003  
+        \___Project_A/  
+        |       \___MAG_001.fasta  
+        |       \___MAG_002.fasta  
+        |       \___MAG_003.fasta  
+        \___Project_B/  
+        |       \___MAG_B_001.fasta  
+        |       \___MAG_B_002.fasta  
+        |       \___MAG_C_003.fasta  
+        \___Project_C/  
+        |       \___MAG_C_001.fasta  
+        |       \___MAG_C_002.fasta  
+        |       \___MAG_C_003.fasta  
         \___metadata.tsv  
 ```
 
