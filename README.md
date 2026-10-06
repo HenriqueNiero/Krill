@@ -387,7 +387,7 @@ FOLDERS AND FILES STRUCTURE
         |       \___MAG_C_001.fasta  
         |       \___MAG_C_002.fasta  
         |       \___MAG_C_003.fasta  
-        \___metadata.tsv  
+        \___metadata_krill.tsv  
 ```
 
 
