@@ -461,9 +461,9 @@ Krill [OPTIONS] PATH
 ```
 
 ```
-usage: Krill [-h] [-noprep] [-t THREADS] [--bigscape] [--bigscape_cutoff BIGSCAPE_CUTOFF] [--pfam-path PFAM] [--bigscape-analysis]
-             [--bigscape-analysis-threshold BIGSCAPE_ANALYSIS_THRESHOLD] [--bigscape-analysis-permutations BIGSCAPE_ANALYSIS_PERMUTATIONS]
-             PATH
+usage: Krill [-h] [-noprep] [-t THREADS] [--bigscape] [--bigscape_cutoff BIGSCAPE_CUTOFF]
+             [--pfam-path PFAM] [--bigscape-analysis] [--bigscape-analysis-threshold BIGSCAPE_ANALYSIS_THRESHOLD]
+             [--bigscape-analysis-permutations BIGSCAPE_ANALYSIS_PERMUTATIONS] PATH
 
 positional arguments:
   PATH                  Working path with fasta files
@@ -471,18 +471,22 @@ positional arguments:
 optional arguments:
   -h, --help            show this help message and exit
   -noprep, --do_not_prepare_fasta_files
-                        Rename fasta files, its headers and store changes in a CSV file for control [DEFAULT: TRUE]
+                        Rename fasta files, its headers and store changes in a CSV file 
+                        for control [DEFAULT: TRUE]
   -t THREADS, --threads THREADS
                         Threads to use in analysis [DEFAULT: 22]
   --bigscape            Run BiG-SCAPE2 after antiSMASH
   --bigscape_cutoff BIGSCAPE_CUTOFF
                         BiG-SCAPE cutoff (default 0.3)
   --pfam-path PFAM      Path to Pfam-A.hmm
-  --bigscape-analysis   Run the optional BiG-SCAPE category analysis on an existing BiG-SCAPE database
+  --bigscape-analysis   Run the optional BiG-SCAPE category analysis on an existing 
+                        BiG-SCAPE database
   --bigscape-analysis-threshold BIGSCAPE_ANALYSIS_THRESHOLD
-                        Distance threshold used for BiG-SCAPE singleton classification [DEFAULT: 0.3]
+                        Distance threshold used for BiG-SCAPE singleton classification 
+                        [DEFAULT: 0.3]
   --bigscape-analysis-permutations BIGSCAPE_ANALYSIS_PERMUTATIONS
-                        Number of permutations used for PERMANOVA/PERMDISP [DEFAULT: 999]
+                        Number of permutations used for PERMANOVA/PERMDISP 
+                        [DEFAULT: 999]
 
 ```
 
