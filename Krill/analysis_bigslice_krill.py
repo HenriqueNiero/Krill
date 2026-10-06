@@ -20,6 +20,7 @@ import os
 import sqlite3
 import sys
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
@@ -195,20 +196,41 @@ def parse_args():
         help="Number of K-means GCC bins (default: 520, as in analysis.ipynb).",
     )
     parser.add_argument(
-        "--dataset-keyword", default="DeceptionIsland",
-        help="Dataset name/keyword for Analysis 1 (default: DeceptionIsland).",
+        "--dataset-keyword", default=None,
+        help="Dataset name/keyword for Analysis 1. If omitted, analyse every dataset in the database plus an aggregate analysis using all datasets.",
     )
     parser.add_argument(
-        "--target-taxon", default="Actinomycetota",
-        help="Taxon substring for Analysis 2 (default: Actinomycetota).",
+        "--target-taxon", default=None,
+        help="Taxon substring for Analysis 2. If omitted, report the 10 most abundant Family taxa by BGC count and analyse each of those families.",
     )
     parser.add_argument(
         "--taxon-rank", default="Phylum",
-        help="Taxonomy column to search (default: Phylum).",
+        help="Taxonomy column to search when --target-taxon is supplied (default: Phylum). When --target-taxon is omitted, Family is used.",
     )
     parser.add_argument(
-        "--description-keyword", default="marine",
-        help="Keyword searched in dataset descriptions for Analysis 3, e.g., 'soil', 'ice', 'ocean', 'gut', 'forest', 'marine' (default: marine).",
+        "--description-keyword", nargs="+", action="append", default=None,
+        help=(
+            "One or more keywords for Analysis 3. Supply multiple terms separated by "
+            "spaces, or repeat this option. If omitted, use the built-in environmental/"
+            "host keyword list and analyse every term that matches dataset descriptions."
+            " Default descriptions keywords = "
+                    "coastal, estuarine, estuary, sediment, benthic, abyssal, "
+                    "deep-sea, hydrothermal, vent, brackish, saline, hypersaline, "
+                    "salt marsh, mangrove, coral, sponge, freshwater, lake, "
+                    "river, stream, pond, rhizosphere, rhizoplane, root-associated, "
+                    "phyllosphere, endophytic, peat, peatland, bog, wetland, "
+                    "permafrost, glacier, snow, polar, volcanic, geothermal, "
+                    "hot spring, arid, desert, crust, cave, subsurface, "
+                    "speleothem, symbiont, symbiotic, comensal, pathogen, "
+                    "pathogenic, virulence, skin, oral, nasal, gut, fecal, "
+                    "stool, rumen, cecum, gastrointestinal, insect, vector, "
+                    "nematode, lichen, algal, phycosphere, sludge, "
+                    "activated sludge, wastewater, effluent, sewage, fermentation, "
+                    "bioreactor, compost, acidic, alkaline, acidophile, "
+                    "alkaliphile, halophile, thermophile, psychrophile, "
+                    "contaminated, bioremediation, oil, petroleum, soil, ice, "
+                    "ocean, forest, marine, coastal, estuarine."
+            ),
     )
     parser.add_argument(
         "--top-n", type=int, default=100,
@@ -902,248 +924,535 @@ def main():
     print([col for col in phylo_metadata.columns if col.startswith('dataset_')])
 
     # ==========================================
-    # ANALYSIS 1: BY ENVIRONMENT / DATASET
+    # ANALYSIS 1-3: DATASET / TAXONOMY / DESCRIPTION
     # ==========================================
 
-    # 1. Define your environment keyword (e.g., 'DeceptionIsland', 'TARA', 'WhaleFall', 'BlackSea', or 'LlaimaVolcano')
-    dataset_keyword = ('dataset_' + args.dataset_keyword)
-    print('Searching for the dataset:', dataset_keyword)
+    # The database is the source of truth for dataset names. The metadata
+    # columns generated above are named "dataset_<database name>".
+    with sqlite3.connect(DB_PATH) as con:
+        dataset_rows = con.execute(
+            "SELECT id, name, COALESCE(description, '') FROM dataset ORDER BY name COLLATE NOCASE"
+        ).fetchall()
 
-    # 2. Find which columns represent these samples
-    env_columns = [col for col in phylo_metadata.columns if dataset_keyword.lower() in col.lower()]
-    print(env_columns)
+    dataset_records = [
+        {"id": row[0], "name": row[1], "description": row[2] or ""}
+        for row in dataset_rows
+    ]
+    all_dataset_names = [row["name"] for row in dataset_records]
 
-    if not env_columns:
-        print(f"Warning: No datasets with '{dataset_keyword}' in the name were found.")
+    dataset_columns = {
+        name: f"dataset_{name}"
+        for name in all_dataset_names
+        if f"dataset_{name}" in phylo_metadata.columns
+    }
+
+    print("\n========================================================")
+    print(" DATASET / ENVIRONMENT ANALYSIS")
+    print("========================================================")
+    print(f"Datasets in database: {len(all_dataset_names)}")
+    print(f"Datasets represented in GCC metadata: {len(dataset_columns)}")
+
+    def analyse_dataset_group(label, columns, output_key):
+        """Analyse one or more dataset columns and return its selected GCC bins."""
+        columns = [c for c in columns if c in phylo_metadata.columns]
+        if not columns:
+            print(f"\nWarning: No BGC/GCC metadata columns found for '{label}'.")
+            return None
+
+        counts = phylo_metadata[columns].sum(axis=1).sort_values(ascending=False)
+        counts = counts[counts > 0]
+        bin_idxs = counts.head(args.top_n).index.tolist()
+
+        print(f"\n--- Top {args.top_n} Bins for Dataset/Environment: '{label}' ---")
+        print(f"Dataset columns: {columns}")
+        print(f"Bin IDs: {bin_idxs}")
+
+        if not bin_idxs:
+            print("No GCC bins contain BGCs from this dataset/group.")
+            return None
+
+        subclass_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("subclass_")
+        ]
+        class_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("class_")
+        ]
+
+        subclasses = phylo_metadata.loc[bin_idxs, subclass_cols].sum().sort_values(ascending=False)
+        subclasses = subclasses[subclasses > 0]
+        if not subclasses.empty:
+            print(f"Subclass distribution (%) for '{label}' bins:")
+            print(round((subclasses / subclasses.sum()) * 100, 1))
+
+        classes = phylo_metadata.loc[bin_idxs, class_cols].sum().sort_values(ascending=False)
+        classes = classes[classes > 0]
+        if not classes.empty:
+            print(f"\nBroad Class distribution (%) for '{label}' bins:")
+            print(round((classes / classes.sum()) * 100, 1))
+
+        safe_label = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_" for ch in str(label)
+        ).strip("_") or "unnamed"
+        result = pd.DataFrame({
+            "bin": bin_idxs,
+            "bgc_count": [int(counts.loc[i]) for i in bin_idxs],
+        })
+        result.to_csv(
+            Path("tables") / f"analysis_dataset_{safe_label}.tsv",
+            sep="\t",
+            index=False,
+        )
+        return {
+            "name": output_key,
+            "label": label,
+            "bin_idxs": bin_idxs,
+            "columns": columns,
+        }
+
+    dataset_analyses = []
+
+    if args.dataset_keyword is None:
+        # Requirement 1: analyse every dataset individually AND all datasets
+        # together. "All datasets" means the union of all dataset columns.
+        for dataset_name in all_dataset_names:
+            column = dataset_columns.get(dataset_name)
+            if column is None:
+                print(
+                    f"Warning: dataset '{dataset_name}' exists in the SQL database "
+                    f"but has no corresponding '{column}' GCC metadata column."
+                )
+                continue
+            result = analyse_dataset_group(
+                dataset_name, [column], f"Dataset: {dataset_name}"
+            )
+            if result is not None:
+                dataset_analyses.append(result)
+
+        all_columns = list(dataset_columns.values())
+        result = analyse_dataset_group(
+            "ALL DATASETS", all_columns, "Dataset: ALL DATASETS"
+        )
+        if result is not None:
+            dataset_analyses.append(result)
     else:
-        # 3. Sort bins by how many hits they contain for this environment
-        env_bins_counts = phylo_metadata[env_columns].sum(axis=1).sort_values(ascending=False)
-    
-        # Grab the top 100 bins with the most hits
-        env_bins_counts = env_bins_counts[env_bins_counts > 0]
-        env_bin_idxs = env_bins_counts.head(args.top_n).index.tolist()
-    
-        print(f"--- Top {args.top_n} Bins for Environment: '{dataset_keyword}' ---")
-        print(f"Bin IDs: {env_bin_idxs}\n")
-
-        if env_bin_idxs:
-            # 4. Run subclass (chemistry) analysis on these bins
-            env_subclasses = phylo_metadata.loc[env_bin_idxs, phylo_metadata.columns.str.startswith("subclass_")].sum().sort_values(ascending=False)
-            env_subclasses = env_subclasses[env_subclasses > 0]
-        
-            print(f"Subclass distribution (%) for '{dataset_keyword}' bins:")
-            print(round((env_subclasses / env_subclasses.sum()) * 100, 1))
-
-            # 5. Run broad class (chemistry) analysis on these bins
-            env_classes = phylo_metadata.loc[env_bin_idxs, phylo_metadata.columns.str.startswith("class_")].sum().sort_values(ascending=False)
-            env_classes = env_classes[env_classes > 0]
-        
-            print(f"\nBroad Class distribution (%) for '{dataset_keyword}' bins:")
-            print(round((env_classes / env_classes.sum()) * 100, 1))
-
-
-
+        # Preserve the original keyword/sub-string behaviour when explicitly
+        # requested by the user. Multiple keywords may be comma-separated.
+        requested = [x.strip() for x in str(args.dataset_keyword).split(",") if x.strip()]
+        for keyword in requested:
+            matched_columns = [
+                col for col in phylo_metadata.columns
+                if col.startswith("dataset_") and keyword.lower() in col.lower()
+            ]
+            result = analyse_dataset_group(
+                keyword, matched_columns, f"Dataset keyword: {keyword}"
+            )
+            if result is not None:
+                dataset_analyses.append(result)
 
     # ==========================================
-    # ANALYSIS 2: BY TAXONOMY / STRAIN
+    # ANALYSIS 2: BY TAXONOMY
     # ==========================================
-
-    # 1. Define your target bacteria (e.g., 'Psychrobacter', 'Steptomyces'), or phyla (change code below in 'Genus')
-    target_genus = args.target_taxon
 
     bgc_taxonomy.to_csv(
         "./tables/taxonomy.tsv",
         sep="\t",
-        index_label="bin"
+        index_label="bin",
     )
 
-    # 2. Find all BGCs in the taxonomy table that match this genus
-    if args.taxon_rank not in bgc_taxonomy.columns:
-        raise ValueError(f"Taxonomy rank '{args.taxon_rank}' not found. Available ranks: {list(bgc_taxonomy.columns)}")
-    target_bgcs = bgc_taxonomy[bgc_taxonomy[args.taxon_rank].str.contains(target_genus, case=False, na=False)]
+    if args.target_taxon is None:
+        # Requirement 2: discover the ten most abundant Family taxa by BGC
+        # count. Blank/unclassified families are excluded.
+        if "Family" not in bgc_taxonomy.columns:
+            raise ValueError(
+                "The database taxonomy does not contain a 'Family' column, so "
+                "automatic top-family discovery cannot be performed."
+            )
 
-    if target_bgcs.empty:
-        print(f"Warning: No BGCs found for genus '{target_genus}'.")
-    else:
-        print(f"--- Profiling Taxonomy: '{target_genus}' ---")
-        print(f"Found {len(target_bgcs)} total BGCs assigned to this genus.\n")
+        family_values = bgc_taxonomy["Family"].fillna("").astype(str).str.strip()
+        family_values = family_values[
+            (family_values != "") &
+            (~family_values.str.lower().isin({"nan", "none", "unknown", "unclassified"}))
+        ]
+        top_families = family_values.value_counts().head(10)
 
-        # 3. Find which bins contain these specific BGCs
-        target_bin_assignments = bgc_bins.loc[target_bgcs.index]
-        bin_counts = target_bin_assignments['bin'].value_counts()
-    
-        # Select the top 4 bins where this genus clusters
-        taxa_bin_idxs = bin_counts.head(args.top_n).index.tolist()
-        print(f"Top 100 Bin IDs where {target_genus} clusters: {taxa_bin_idxs}\n")
-
-        # 4. Run subclass (chemistry) analysis on these bins
-        taxa_subclasses = phylo_metadata.loc[taxa_bin_idxs, phylo_metadata.columns.str.startswith("subclass_")].sum().sort_values(ascending=False)
-        taxa_subclasses = taxa_subclasses[taxa_subclasses > 0]
-
-        print(f"Subclass distribution (%) for '{target_genus}' bins:")
-        print(round((taxa_subclasses / taxa_subclasses.sum()) * 100, 1))
-
-        print(" ")
-            
-        # 5. Run broad class (chemistry) analysis on these bins
-        taxa_classes = phylo_metadata.loc[taxa_bin_idxs, phylo_metadata.columns.str.startswith("class_")].sum().sort_values(ascending=False)
-        taxa_classes = taxa_classes[taxa_classes > 0]
-        print(f"Class distribution (%) for '{target_genus}' environment bins:")
-        print(round((taxa_classes / taxa_classes.sum()) * 100, 1))
-
-
-
-    
-        print("\n---------------------------------------------------")
-    
-        # 5. Check the dataset origins for these specific bins
-        all_dataset_cols = phylo_metadata.columns[phylo_metadata.columns.str.startswith("dataset_")]
-        taxa_datasets = phylo_metadata.loc[taxa_bin_idxs, all_dataset_cols].sum()
-        taxa_datasets = taxa_datasets[taxa_datasets > 0].sort_values(ascending=False)
-    
-        print(f"Dataset origins for these '{target_genus}' bins:")
-        for dataset_name, count in taxa_datasets.items():
-            clean_name = dataset_name.replace("dataset_", "")
-            print(f" - {clean_name}: {int(count)} BGCs")
-
-    # ==========================================
-    # ANALYSIS 3: BY DATASET DESCRIPTION (METADATA)
-    # ==========================================
-    import sqlite3
-
-    # 1. Define your ecological keyword to search in descriptions (e.g., 'soil', 'ice', 'ocean', 'gut', 'forest', 'marine')
-    description_keyword = args.description_keyword
-
-    # 2. Query the database to find datasets with this keyword in their description
-    with sqlite3.connect(DB_PATH) as con:
-        cur = con.cursor()
-        # Using LOWER() to make the SQL search case-insensitive
-        query = "SELECT name, description FROM dataset WHERE LOWER(description) LIKE ?"
-        matches = cur.execute(query, ('%' + description_keyword.lower() + '%',)).fetchall()
-
-    if not matches:
-        print(f"Warning: No datasets found with '{description_keyword}' in their description.")
-    else:
-        print(f"Found {len(matches)} dataset(s) matching '{description_keyword}' in the description.")
-        matched_dataset_names = [row[0] for row in matches]
-    
-        # 3. Find the corresponding columns in your metadata table
-        desc_columns = [f"dataset_{name}" for name in matched_dataset_names if f"dataset_{name}" in phylo_metadata.columns]
-    
-        if not desc_columns:
-            print("Warning: Matched datasets have no corresponding BGCs at the current clustering threshold.")
+        print("\n========================================================")
+        print(" TOP 10 FAMILIES BY BGC COUNT")
+        print("========================================================")
+        if top_families.empty:
+            print("No classified Family values were found.")
         else:
-            # 4. Sort bins by how many hits they contain for these environment-specific datasets
-            desc_bins_counts = phylo_metadata[desc_columns].sum(axis=1).sort_values(ascending=False)
-        
-            # Grab the top 4 bins with the most hits
-            desc_bins_counts = desc_bins_counts[desc_bins_counts > 0]
-            desc_bin_idxs = desc_bins_counts.head(args.top_n).index.tolist()
-        
-            print(f"\n--- Top {args.top_n} Bins for Environment Description: '{description_keyword}' ---")
-            print(f"Bin IDs: {desc_bin_idxs}\n")
+            print(top_families.to_string())
+            print("\nThese 10 families will be analysed individually.")
 
-            if desc_bin_idxs:
-                # 5. Run subclass (chemistry) analysis on these specific bins
-                desc_subclasses = phylo_metadata.loc[desc_bin_idxs, phylo_metadata.columns.str.startswith("subclass_")].sum().sort_values(ascending=False)
-                desc_subclasses = desc_subclasses[desc_subclasses > 0]
-            
-                print(f"Subclass distribution (%) for '{description_keyword}' environment bins:")
-                print(round((desc_subclasses / desc_subclasses.sum()) * 100, 1))
-                       
-                print(" ")
-            
-                # 5. Run broad class (chemistry) analysis on these bins
-                desc_classes = phylo_metadata.loc[desc_bin_idxs, phylo_metadata.columns.str.startswith("class_")].sum().sort_values(ascending=False)
-                desc_classes = desc_classes[desc_classes > 0]
-                print(f"Class distribution (%) for '{description_keyword}' environment bins:")
-                print(round((desc_classes / desc_classes.sum()) * 100, 1))
-            
-            
-            
-                print("\n---------------------------------------------------")
-                print("Specific contributing datasets found in these top bins:")
-            
-                # Show exactly which datasets from your SQL query are showing up in these top bins
-                desc_datasets_present = phylo_metadata.loc[desc_bin_idxs, desc_columns].sum()
-                desc_datasets_present = desc_datasets_present[desc_datasets_present > 0].sort_values(ascending=False)
-            
-                for dataset_col, count in desc_datasets_present.items():
-                    clean_name = dataset_col.replace("dataset_", "")
-                    print(f" - {clean_name}: {int(count)} BGCs")
+        target_specs = [
+            (family, "Family")
+            for family in top_families.index.tolist()
+        ]
+    else:
+        # Explicit target: retain the original --taxon-rank behaviour.
+        target_specs = [
+            (x.strip(), args.taxon_rank)
+            for x in str(args.target_taxon).split(",")
+            if x.strip()
+        ]
 
+    target_analyses = []
 
+    def analyse_taxon_group(target_name, taxon_rank):
+        if taxon_rank not in bgc_taxonomy.columns:
+            raise ValueError(
+                f"Taxonomy rank '{taxon_rank}' not found. "
+                f"Available ranks: {list(bgc_taxonomy.columns)}"
+            )
 
+        target_bgcs = bgc_taxonomy[
+            bgc_taxonomy[taxon_rank].fillna("").astype(str).str.contains(
+                target_name, case=False, na=False, regex=False
+            )
+        ]
+
+        if target_bgcs.empty:
+            print(f"\nWarning: No BGCs found for {taxon_rank} '{target_name}'.")
+            return None
+
+        print("\n---------------------------------------------------")
+        print(f"Profiling Taxonomy: '{target_name}' ({taxon_rank})")
+        print(f"Found {len(target_bgcs)} total BGCs assigned to this taxon.")
+
+        target_bin_assignments = bgc_bins.loc[
+            bgc_bins.index.intersection(target_bgcs.index)
+        ]
+        bin_counts = target_bin_assignments["bin"].value_counts()
+        taxa_bin_idxs = bin_counts.head(args.top_n).index.tolist()
+
+        print(f"Top {args.top_n} Bin IDs where {target_name} clusters:")
+        print(taxa_bin_idxs)
+
+        subclass_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("subclass_")
+        ]
+        class_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("class_")
+        ]
+
+        subclasses = phylo_metadata.loc[taxa_bin_idxs, subclass_cols].sum().sort_values(ascending=False)
+        subclasses = subclasses[subclasses > 0]
+        if not subclasses.empty:
+            print(f"\nSubclass distribution (%) for '{target_name}' bins:")
+            print(round((subclasses / subclasses.sum()) * 100, 1))
+
+        classes = phylo_metadata.loc[taxa_bin_idxs, class_cols].sum().sort_values(ascending=False)
+        classes = classes[classes > 0]
+        if not classes.empty:
+            print(f"\nClass distribution (%) for '{target_name}' bins:")
+            print(round((classes / classes.sum()) * 100, 1))
+
+        all_dataset_cols = [
+            c for c in phylo_metadata.columns if c.startswith("dataset_")
+        ]
+        taxa_datasets = (
+            phylo_metadata.loc[taxa_bin_idxs, all_dataset_cols]
+            .sum()
+            .sort_values(ascending=False)
+        )
+        taxa_datasets = taxa_datasets[taxa_datasets > 0]
+
+        if not taxa_datasets.empty:
+            print(f"\nDataset origins for these '{target_name}' bins:")
+            for dataset_name, count in taxa_datasets.items():
+                print(f" - {dataset_name.replace('dataset_', '')}: {int(count)} BGCs")
+
+        safe_name = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_" for ch in target_name
+        ).strip("_") or "unnamed"
+        pd.DataFrame({
+            "bin": taxa_bin_idxs,
+            "target_bgc_count": [int(bin_counts.loc[i]) for i in taxa_bin_idxs],
+        }).to_csv(
+            Path("tables") / f"analysis_taxon_{taxon_rank}_{safe_name}.tsv",
+            sep="\t",
+            index=False,
+        )
+
+        return {
+            "name": f"Taxonomy: {target_name}",
+            "label": target_name,
+            "bin_idxs": taxa_bin_idxs,
+        }
+
+    for target_name, taxon_rank in target_specs:
+        result = analyse_taxon_group(target_name, taxon_rank)
+        if result is not None:
+            target_analyses.append(result)
+
+    # ==========================================
+    # ANALYSIS 3: BY DATASET DESCRIPTION
+    # ==========================================
+
+    DEFAULT_DESCRIPTION_KEYWORDS = [
+        "coastal", "estuarine", "estuary", "sediment", "benthic", "abyssal",
+        "deep-sea", "hydrothermal", "vent", "brackish", "saline", "hypersaline",
+        "salt marsh", "mangrove", "coral", "sponge", "freshwater", "lake",
+        "river", "stream", "pond", "rhizosphere", "rhizoplane", "root-associated",
+        "phyllosphere", "endophytic", "peat", "peatland", "bog", "wetland",
+        "permafrost", "glacier", "snow", "polar", "volcanic", "geothermal",
+        "hot spring", "arid", "desert", "crust", "cave", "subsurface",
+        "speleothem", "symbiont", "symbiotic", "comensal", "pathogen",
+        "pathogenic", "virulence", "skin", "oral", "nasal", "gut", "fecal",
+        "stool", "rumen", "cecum", "gastrointestinal", "insect", "vector",
+        "nematode", "lichen", "algal", "phycosphere", "sludge",
+        "activated sludge", "wastewater", "effluent", "sewage", "fermentation",
+        "bioreactor", "compost", "acidic", "alkaline", "acidophile",
+        "alkaliphile", "halophile", "thermophile", "psychrophile",
+        "contaminated", "bioremediation", "oil", "petroleum", "soil", "ice",
+        "ocean", "forest", "marine", "coastal", "estuarine"
+    ]
+
+    def flatten_description_keywords(raw):
+        """Flatten argparse's repeated/nargs structure and accept comma lists."""
+        if raw is None:
+            return DEFAULT_DESCRIPTION_KEYWORDS.copy()
+
+        flattened = []
+        for item in raw:
+            for token in item:
+                flattened.extend(
+                    part.strip() for part in token.split(",") if part.strip()
+                )
+
+        return list(dict.fromkeys(flattened))
+
+    description_keywords = flatten_description_keywords(args.description_keyword)
+
+    print("\n========================================================")
+    print(" DATASET DESCRIPTION ANALYSIS")
+    print("========================================================")
+    print(f"Description keywords to analyse: {description_keywords}")
+
+    description_analyses = []
+
+    def analyse_description_keyword(description_keyword):
+        with sqlite3.connect(DB_PATH) as con:
+            # Register Python's regex engine into SQLite
+            con.create_function(
+                "REGEXP", 2, lambda expr, item: re.search(expr, item) is not None
+            )
+
+            # \b matches word boundaries; re.escape prevents issues if keyword contains special symbols
+            pattern = r"\b" + re.escape(description_keyword) + r"\b"
+
+            matches = con.execute(
+                """
+                SELECT name, description
+                FROM dataset
+                WHERE COALESCE(description, '') REGEXP ?
+                ORDER BY name COLLATE NOCASE
+                """,
+                (pattern,),
+            ).fetchall()
+
+        print(f"\n--- Dataset description keyword: '{description_keyword}' ---")
+
+        if not matches:
+            print(
+                f"Warning: No datasets found with '{description_keyword}' "
+                "in their description."
+            )
+            return None
+
+        matched_dataset_names = [row[0] for row in matches]
+        print(
+            f"Found {len(matched_dataset_names)} dataset(s): "
+            f"{matched_dataset_names}"
+        )
+
+        desc_columns = [
+            f"dataset_{name}"
+            for name in matched_dataset_names
+            if f"dataset_{name}" in phylo_metadata.columns
+        ]
+
+        if not desc_columns:
+            print(
+                "Warning: Matched datasets have no corresponding BGCs at the "
+                "current clustering threshold."
+            )
+            return None
+
+        desc_bins_counts = (
+            phylo_metadata[desc_columns]
+            .sum(axis=1)
+            .sort_values(ascending=False)
+        )
+        desc_bins_counts = desc_bins_counts[desc_bins_counts > 0]
+        desc_bin_idxs = desc_bins_counts.head(args.top_n).index.tolist()
+
+        print(f"Top {args.top_n} Bin IDs: {desc_bin_idxs}")
+
+        if not desc_bin_idxs:
+            return None
+
+        subclass_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("subclass_")
+        ]
+        class_cols = phylo_metadata.columns[
+            phylo_metadata.columns.str.startswith("class_")
+        ]
+
+        subclasses = phylo_metadata.loc[
+            desc_bin_idxs, subclass_cols
+        ].sum().sort_values(ascending=False)
+        subclasses = subclasses[subclasses > 0]
+        if not subclasses.empty:
+            print(f"Subclass distribution (%) for '{description_keyword}' bins:")
+            print(round((subclasses / subclasses.sum()) * 100, 1))
+
+        classes = phylo_metadata.loc[
+            desc_bin_idxs, class_cols
+        ].sum().sort_values(ascending=False)
+        classes = classes[classes > 0]
+        if not classes.empty:
+            print(f"Class distribution (%) for '{description_keyword}' bins:")
+            print(round((classes / classes.sum()) * 100, 1))
+
+        desc_datasets_present = (
+            phylo_metadata.loc[desc_bin_idxs, desc_columns]
+            .sum()
+            .sort_values(ascending=False)
+        )
+        desc_datasets_present = desc_datasets_present[desc_datasets_present > 0]
+
+        print("\nSpecific contributing datasets found in these top bins:")
+        for dataset_col, count in desc_datasets_present.items():
+            print(
+                f" - {dataset_col.replace('dataset_', '')}: {int(count)} BGCs"
+            )
+
+        safe_name = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in description_keyword
+        ).strip("_") or "unnamed"
+        pd.DataFrame({
+            "bin": desc_bin_idxs,
+            "matched_dataset_bgc_count": [
+                int(desc_bins_counts.loc[i]) for i in desc_bin_idxs
+            ],
+        }).to_csv(
+            Path("tables") / f"analysis_description_{safe_name}.tsv",
+            sep="\t",
+            index=False,
+        )
+
+        return {
+            "name": f"Description: {description_keyword}",
+            "label": description_keyword,
+            "bin_idxs": desc_bin_idxs,
+        }
+
+    for keyword in description_keywords:
+        result = analyse_description_keyword(keyword)
+        if result is not None:
+            description_analyses.append(result)
 
     # ==========================================
     # CONSOLIDATED DATA SLICER
     # ==========================================
+
     sliced_data = {}
 
-    # 1. Slice for Environment Analysis
-    if 'env_bin_idxs' in locals() and env_bin_idxs:
-        env_bgcs = bgc_bins[bgc_bins["bin"].isin(env_bin_idxs)]
-        sliced_data["Environment"] = {
-            "taxonomy": bgc_taxonomy.loc[env_bgcs.index],
-            "features": bgc_features.loc[env_bgcs.index]
+    def add_slice(analysis):
+        """Add one analysis to the profiler without overwriting other analyses."""
+        if not analysis or not analysis.get("bin_idxs"):
+            return
+
+        selected_bgcs = bgc_bins[
+            bgc_bins["bin"].isin(analysis["bin_idxs"])
+        ].index
+
+        if len(selected_bgcs) == 0:
+            return
+
+        base_name = analysis["name"]
+        key = base_name
+        suffix = 2
+        while key in sliced_data:
+            key = f"{base_name} ({suffix})"
+            suffix += 1
+
+        sliced_data[key] = {
+            "taxonomy": bgc_taxonomy.loc[
+                bgc_taxonomy.index.intersection(selected_bgcs)
+            ],
+            "features": bgc_features.loc[
+                bgc_features.index.intersection(selected_bgcs)
+            ],
         }
 
-    # 2. Slice for Taxonomy Analysis
-    if 'taxa_bin_idxs' in locals() and taxa_bin_idxs:
-        taxa_bgcs = bgc_bins[bgc_bins["bin"].isin(taxa_bin_idxs)]
-        sliced_data["Taxonomy"] = {
-            "taxonomy": bgc_taxonomy.loc[taxa_bgcs.index],
-            "features": bgc_features.loc[taxa_bgcs.index]
-        }
+    for analysis in dataset_analyses:
+        add_slice(analysis)
+    for analysis in target_analyses:
+        add_slice(analysis)
+    for analysis in description_analyses:
+        add_slice(analysis)
 
-    # 3. Slice for Description/Metadata Analysis
-    if 'desc_bin_idxs' in locals() and desc_bin_idxs:
-        desc_bgcs = bgc_bins[bgc_bins["bin"].isin(desc_bin_idxs)]
-        sliced_data["Description"] = {
-            "taxonomy": bgc_taxonomy.loc[desc_bgcs.index],
-            "features": bgc_features.loc[desc_bgcs.index]
-        }
-
-    print(f"Successfully prepared data slices for: {list(sliced_data.keys())}")
+    print(
+        f"\nSuccessfully prepared data slices for: "
+        f"{list(sliced_data.keys())}"
+    )
 
     # ==========================================
     # UNIVERSAL CLADE PROFILER
     # ==========================================
+
     def profile_target_bins(analysis_name, subset_taxonomy, subset_features):
-        print(f"\n========================================================")
+        print("\n========================================================")
         print(f" PROFILING RESULTS FOR: {analysis_name.upper()}")
-        print(f"========================================================")
-    
-        # 1. Kingdom Distribution
-        print("\n--- 1. Kingdom Distribution ---")
-        print(subset_taxonomy.groupby(["Kingdom"])["Organism"].count().sort_values(ascending=False))
-    
-        # 2. Bacterial Taxonomy Breakdown
-        bac_taxa = subset_taxonomy[subset_taxonomy["Kingdom"] == "Bacteria"]
+        print("========================================================")
+
+        if "Kingdom" in subset_taxonomy.columns and "Organism" in subset_taxonomy.columns:
+            print("\n--- 1. Kingdom Distribution ---")
+            print(
+                subset_taxonomy.groupby(["Kingdom"])["Organism"]
+                .count().sort_values(ascending=False)
+            )
+
+        if "Kingdom" in subset_taxonomy.columns:
+            bac_taxa = subset_taxonomy[
+                subset_taxonomy["Kingdom"].fillna("").astype(str).str.lower() == "bacteria"
+            ]
+        else:
+            bac_taxa = pd.DataFrame()
+
         if not bac_taxa.empty:
-            print("\n--- 2. Top 5 Bacterial Phyla ---")
-            print(bac_taxa.groupby(["Phylum"])["Organism"].count().sort_values(ascending=False).head(5))
-        
-            print("\n--- 3. Top 5 Bacterial Classes ---")
-            print(bac_taxa.groupby(["Class"])["Organism"].count().sort_values(ascending=False).head(5))
-        
-            print("\n--- 4. Top 10 Bacterial Genera ---")
-            print(bac_taxa.groupby(["Genus"])["Organism"].count().sort_values(ascending=False).head(10))
+            if "Phylum" in bac_taxa.columns and "Organism" in bac_taxa.columns:
+                print("\n--- 2. Top 5 Bacterial Phyla ---")
+                print(
+                    bac_taxa.groupby(["Phylum"])["Organism"]
+                    .count().sort_values(ascending=False).head(5)
+                )
+            if "Class" in bac_taxa.columns and "Organism" in bac_taxa.columns:
+                print("\n--- 3. Top 5 Bacterial Classes ---")
+                print(
+                    bac_taxa.groupby(["Class"])["Organism"]
+                    .count().sort_values(ascending=False).head(5)
+                )
+            if "Genus" in bac_taxa.columns and "Organism" in bac_taxa.columns:
+                print("\n--- 4. Top 10 Bacterial Genera ---")
+                print(
+                    bac_taxa.groupby(["Genus"])["Organism"]
+                    .count().sort_values(ascending=False).head(10)
+                )
         else:
             print("\n(No Bacterial BGCs found in this slice to profile taxonomy.)")
 
-        # 3. Enriched Biosynthetic Features (Top HMMs)
         print("\n--- 5. Top 15 Enriched HMM Features (Average Score) ---")
-        # Calculate the mean score of every feature across these specific BGCs
         mean_features = subset_features.mean().sort_values(ascending=False)
-        # Filter out zeros to only show features that are actually present
-        top_features = mean_features[mean_features > 0].head(15)
-        print(top_features)
+        print(mean_features[mean_features > 0].head(15))
         print("========================================================\n")
 
-    # Execute the profiler for all active analyses
     if not sliced_data:
-        print("No sliced data available. Please run Analysis 1, 2, or 3 first.")
+        print("No sliced data available. No dataset/taxon/description analysis "
+              "returned any GCC bins.")
     else:
         for name, data in sliced_data.items():
             profile_target_bins(name, data["taxonomy"], data["features"])
