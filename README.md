@@ -362,7 +362,7 @@ Update these codes inside installed BiG-SLICE directories.
 /home/User/miniconda/envs/bigslice/lib/python3.14/site-packages/bigslice/modules/clustering/birch.py
 ```
 
-3. Additional necessary packages
+4. Additional necessary packages
 
 ```
 conda install ete3
