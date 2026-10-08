@@ -1,0 +1,2538 @@
+#!/usr/bin/env python3
+"""
+krill_all_plots.py
+
+Generate the consolidated set of plots/statistical summaries previously
+produced from rede_node_table_completa_organizada.csv, using the current
+Krill table DBs_BGCs_with_Hits_BiGSCAPE.tsv directly.
+
+Primary input columns
+---------------------
+Database
+product
+product_bigscape
+BiGSCAPE_Class
+BiGSCAPE_Category
+KnownResistanceHit_product
+KnownResistanceHit_Resfam
+regulatory_genes
+genes
+BGCs_Hits_Mean_Similarities(%)
+Size
+completeness
+
+The script deliberately does NOT recreate obsolete intermediate CSV tables.
+All transformations are performed in memory and the final plots/tables are
+written directly to the output directory.
+
+Usage
+-----
+python krill_all_plots.py DBs_BGCs_with_Hits_BiGSCAPE.tsv -o krill_plots
+
+The script also reads Krill's DBs_normalized_info.tsv from
+<input>/DBsReportOutput/ to generate database size/BGC-density plots.
+
+Dependencies
+------------
+pandas, numpy, matplotlib, seaborn, scipy
+"""
+
+#!/usr/bin/env python3
+
+import argparse, ast, itertools, math, re
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+import pingouin as pg
+
+from scipy import stats
+from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy.spatial.distance import pdist
+
+
+SIM_COL = "BGCs_Hits_Mean_Similarities(%)"
+
+
+# ============================================================
+# General functions
+# ============================================================
+
+def savefig(fig, path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def create_dataset_colors(df):
+    datasets = df["Database"].dropna().astype(str).str.strip().drop_duplicates().tolist()
+    palette = sns.color_palette("husl", n_colors=len(datasets))
+    return dict(zip(datasets, palette))
+
+
+def dataset_colors_for(values, colors):
+    return [colors.get(str(v).strip(), (0.5, 0.5, 0.5)) for v in values]
+
+
+def split_cell(value):
+    if pd.isna(value) or str(value).strip().lower() in {"", "nan", "none"}:
+        return []
+    return [x.strip() for x in str(value).split(",") if x.strip()]
+
+
+# ============================================================
+# Read main Krill table
+# ============================================================
+
+def read_input(path):
+    df = pd.read_csv(path, sep="\t", low_memory=False)
+
+    if "Database" not in df.columns:
+        raise ValueError("The input table must contain a 'Database' column.")
+
+    optional = [
+        "product", "product_bigscape", "BiGSCAPE_Class",
+        "BiGSCAPE_Category", "KnownResistanceHit_product",
+        "KnownResistanceHit_Resfam", "regulatory_genes",
+        "genes", SIM_COL, "Size", "completeness",
+        "BGCs_Hits", "KnownResistenceHit"
+    ]
+
+    for c in optional:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    df["Database"] = df["Database"].astype(str).str.strip()
+
+    for c in [SIM_COL, "Size"]:
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    df["regulatory_genes"] = (
+        df["regulatory_genes"].astype(str).str.lower().str.strip()
+        .map({"true": True, "false": False, "1": True, "0": False})
+        .fillna(False)
+    )
+
+    return df
+
+
+# ============================================================
+# Locate DBs_normalized_info.tsv
+# ============================================================
+
+def find_input_path(table_path, input_path=None):
+    if input_path:
+        return Path(input_path).resolve()
+
+    table_path = Path(table_path).resolve()
+
+    if table_path.parent.name.lower() == "dbsreportoutput":
+        return table_path.parent.parent
+
+    return table_path.parent
+
+
+def read_normalized_info(table_path, input_path=None):
+    input_path = find_input_path(table_path, input_path)
+    path = input_path / "DBsReportOutput" / "DBs_normalized_info.tsv"
+
+    if not path.exists():
+        path = Path(table_path).resolve().parent / "DBs_normalized_info.tsv"
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Could not find DBs_normalized_info.tsv. Expected: {path}"
+        )
+
+    info = pd.read_csv(path, sep="\t", low_memory=False)
+
+    db_col = next(
+        (c for c in info.columns if str(c).strip().lower() in {"database", "db"}),
+        None
+    )
+
+    nt_col = next(
+        (
+            c for c in info.columns
+            if "nt" in str(c).lower().replace(" ", "").replace("_", "")
+            and "kb" in str(c).lower().replace(" ", "").replace("_", "")
+        ),
+        None
+    )
+
+    if db_col is None or nt_col is None:
+        raise ValueError(
+            f"Could not identify Database or NT (KB) in {path}. "
+            f"Columns: {list(info.columns)}"
+        )
+
+    info = info[[db_col, nt_col]].copy()
+    info.columns = ["Database", "NT_KB"]
+    info["Database"] = info["Database"].astype(str).str.strip()
+    info["NT_KB"] = pd.to_numeric(info["NT_KB"], errors="coerce")
+    info["NT_MB"] = info["NT_KB"] / 1000
+
+    return (
+        info.dropna(subset=["Database", "NT_MB"])
+        .groupby("Database", as_index=False)[["NT_KB", "NT_MB"]]
+        .sum()
+    )
+
+
+# ============================================================
+# Database size / BGC / BGC density
+# ============================================================
+
+def plot_database_summary(table_path, input_path, outdir, df, colors):
+    info = read_normalized_info(table_path, input_path)
+
+    counts = (
+        df.groupby("Database")
+        .size()
+        .reset_index(name="BGC_count")
+    )
+
+    summary = info.merge(counts, on="Database", how="left")
+    summary["BGC_count"] = summary["BGC_count"].fillna(0).astype(int)
+    summary["BGCs_per_MB"] = summary["BGC_count"] / summary["NT_MB"]
+
+    summary.to_csv(
+        outdir / "database_size_bgc_summary.csv",
+        index=False
+    )
+
+    plots = [
+        ("database_megabases.png", "NT (MB)", "Database size", "NT_MB"),
+        ("database_bgc_count.png", "Number of BGCs", "BGC count", "BGC_count"),
+        ("database_bgcs_per_megabase.png", "BGCs / MB", "BGC density", "BGCs_per_MB")
+    ]
+
+    n = summary["Database"].nunique()
+    figsize = (10, max(2, n))
+
+    for filename, xlabel, title, value_col in plots:
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.barh(
+            summary["Database"],
+            summary[value_col],
+            color=dataset_colors_for(summary["Database"], colors)
+        )
+        ax.set_ylabel("Database")
+        ax.set_xlabel(xlabel)
+        ax.set_title(title)
+        ax.invert_yaxis()
+        savefig(fig, outdir / filename)
+
+    pd.DataFrame({
+        "Database": list(colors.keys()),
+        "Color": [matplotlib.colors.to_hex(c) for c in colors.values()]
+    }).to_csv(outdir / "dataset_colors.csv", index=False)
+
+    return summary
+
+
+
+# ============================================================
+# Database BGC completeness / similarity to MIBIG / Resistance hits
+# ============================================================
+
+def plot_cumulative_percentage_bars(df, outdir, colors):
+    """
+    Create 100%-stacked horizontal percentage bar plots for:
+      1. Complete vs Fragmented BGCs
+      2. BGCs with vs without MIBiG hits
+      3. BGCs with vs without resistance hits
+    """
+
+    plots = [
+        {
+            "filename": "bgcs_completeness_percentage.png",
+            "column": "completeness",
+            "conditions": ["Complete", "Fragmented"],
+            "labels": ["Complete", "Fragmented"],
+            "title": "BGC completeness",
+        },
+        {
+            "filename": "bgcs_mibig_similarity_percentage.png",
+            "column": "BGCs_Hits",
+            "conditions": ["With hits", "Without hits"],
+            "title": "BGCs with similarity to MIBiG",
+        },
+        {
+            "filename": "bgcs_resistance_percentage.png",
+            "column": "KnownResistenceHit",
+            "conditions": ["With hits", "Without hits"],
+            "title": "BGCs with resistance hits",
+        },
+    ]
+
+    datasets = (df["Database"].dropna().astype(str).str.strip().drop_duplicates().tolist())
+    n = len(datasets)
+    figsize = (10, max(3, 0.7 * n + 1))
+
+    for plot in plots:
+        column = plot["column"]
+
+        if column not in df.columns:
+            print(
+                f"WARNING: Column '{column}' was not found. "
+                f"Skipping {plot['filename']}."
+            )
+            continue
+
+        data = df.copy()
+        data[column] = data[column].fillna("").astype(str).str.strip()
+
+        # ------------------------------------------------------------
+        # Build the two categories for each plot
+        # ------------------------------------------------------------
+
+        if column == "completeness":
+            data["Condition"] = data[column].str.lower().map(
+                {
+                    "complete": "Complete",
+                    "fragmented": "Fragmented",
+                }
+            )
+
+        elif column == "BGCs_Hits":
+            data["Condition"] = np.where(
+                data[column].str.strip() != "",
+                "With hits",
+                "Without hits",
+            )
+
+        elif column == "KnownResistenceHit":
+            data["Condition"] = np.where(
+                data[column].str.strip() != "",
+                "With hits",
+                "Without hits",
+            )
+
+        # Ignore unexpected completeness values
+        data = data[data["Condition"].notna()].copy()
+
+        # ------------------------------------------------------------
+        # Count BGCs
+        # ------------------------------------------------------------
+
+        counts = (data.groupby(["Database", "Condition"]).size().unstack(fill_value=0))
+
+        for condition in plot["conditions"]:
+            if condition not in counts.columns:
+                counts[condition] = 0
+
+        counts = counts[plot["conditions"]]
+
+        # Make sure every dataset is represented
+        counts = counts.reindex(datasets, fill_value=0)
+
+        # ------------------------------------------------------------
+        # Convert counts to percentages
+        # ------------------------------------------------------------
+
+        totals = counts.sum(axis=1)
+
+        percentages = counts.div(totals.replace(0, np.nan),axis=0) * 100
+        percentages = percentages.fillna(0)
+
+        # ------------------------------------------------------------
+        # Plot
+        # ------------------------------------------------------------
+
+        fig, ax = plt.subplots(figsize=figsize)
+        left = np.zeros(len(datasets))
+
+        for i, condition in enumerate(plot["conditions"]):
+            values = percentages[condition].values
+
+            # --------------------------------------------------------
+            # Same dataset color, but different opacity:
+            # first condition = stronger
+            # second condition = lighter
+            # --------------------------------------------------------
+
+            alpha = 0.95 if i == 0 else 0.50
+
+            bar_colors = [
+                colors.get(
+                    dataset,
+                    (0.5, 0.5, 0.5)
+                )
+                for dataset in datasets
+            ]
+
+            bars = ax.barh(
+                datasets,
+                values,
+                left=left,
+                color=bar_colors,
+                alpha=alpha,
+                edgecolor="white",
+                linewidth=0.8,
+                label=condition,
+            )
+
+            # --------------------------------------------------------
+            # Number of BGCs inside each segment
+            # --------------------------------------------------------
+
+            for j, bar in enumerate(bars):
+                count = int(counts.iloc[j][condition])
+                percentage = percentages.iloc[j][condition]
+
+                if count == 0:
+                    continue
+
+                # Only write the number if the segment is wide enough
+                # to contain readable text.
+                if percentage >= 3:
+
+                    x_position = (left[j] + percentage / 2)
+
+                    ax.text(
+                        x_position,
+                        bar.get_y() + bar.get_height() / 2,
+                        str(count),
+                        ha="center",
+                        va="center",
+                        color="black",
+                        fontsize=9,
+                        fontweight="bold",
+                    )
+
+            left += values
+
+        # ------------------------------------------------------------
+        # Axis formatting
+        # ------------------------------------------------------------
+
+        ax.set_xlim(0, 100)
+
+        # ax.set_xlabel("Percentage of BGCs (%)")
+        ax.set_ylabel("Database")
+        ax.set_title(plot["title"])
+
+        ax.set_xticks(np.arange(0, 101, 10))
+        ax.set_xticklabels(
+            [f"{x}%" for x in range(0, 101, 10)]
+        )
+
+        ax.invert_yaxis()
+
+        # Legend describing the conditions
+        legend_handles = [
+            Patch(
+                facecolor="gray",
+                alpha=0.95,
+                label=plot["conditions"][0]
+            ),
+            Patch(
+                facecolor="gray",
+                alpha=0.50,
+                label=plot["conditions"][1]
+            )
+        ]
+
+        ax.legend(
+            handles=legend_handles,
+            title="",
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.12),
+            ncol=2,
+            frameon=False,
+        )
+
+        savefig(fig, outdir / plot["filename"])
+
+
+# ============================================================
+# Database BGC size distribution
+# ============================================================
+
+
+def plot_size_violin_plots(df, outdir, colors, alpha=0.05):
+    """
+    Create three violin plots with boxplots inside:
+
+    1. Size distribution by dataset.
+    2. Size distribution by completeness (Complete vs Fragmented).
+    3. Size distribution by completeness, separated by dataset.
+
+    Also performs:
+      - Kruskal-Wallis
+      - Mann-Whitney U for Complete vs Fragmented
+      - Games-Howell for dataset pairwise comparisons when
+        Kruskal-Wallis is significant.
+
+    Statistical results are written to TSV files.
+    """
+
+    from scipy.stats import kruskal, mannwhitneyu
+    from statsmodels.stats.multitest import multipletests
+
+    try:
+        import pingouin as pg
+        has_pingouin = True
+    except ImportError:
+        has_pingouin = False
+
+    data = df.copy()
+
+    # ------------------------------------------------------------
+    # Prepare columns
+    # ------------------------------------------------------------
+
+    data["Database"] = (
+        data["Database"]
+        .astype(str)
+        .str.strip()
+    )
+
+    data["Size"] = pd.to_numeric(
+        data["Size"],
+        errors="coerce"
+    )
+
+    data["completeness"] = (
+        data["completeness"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    data["completeness"] = data["completeness"].map(
+        {
+            "complete": "Complete",
+            "fragmented": "Fragmented"
+        }
+    )
+
+    data = data.dropna(
+        subset=["Database", "Size"]
+    )
+
+    # Remove zero/negative sizes
+    data = data[data["Size"] > 0].copy()
+
+    # ------------------------------------------------------------
+    # Dataset order
+    # ------------------------------------------------------------
+
+    datasets = (
+        data["Database"]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    # ============================================================
+    # PLOT 1
+    # Size distribution by dataset
+    # ============================================================
+
+    fig, ax = plt.subplots(figsize=(max(7, 1.0 * len(datasets)), 7))
+
+    sns.violinplot(
+        data=data,
+        x="Database",
+        y="Size",
+        hue="Database",
+        palette=colors,
+        inner=None,
+        fill=False,
+        cut=0,
+        gap=0.1,
+        linewidth=1,
+        legend=False,
+        ax=ax,
+        zorder=2
+    )
+
+    sns.boxplot(
+        data=data,
+        x="Database",
+        y="Size",
+        hue="Database",
+        fill=False,
+        linewidth=1, 
+        linecolor='black',
+        gap=0.1,
+        zorder=3,
+        palette={
+            d: "gray"
+            for d in datasets
+        },
+        width=0.18,
+        whis=(0, 100),
+        legend=False,
+        showcaps=True,
+        boxprops={
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 2
+        },
+        ax=ax,
+    )
+
+    sns.stripplot(
+        data=df, 
+        x="Database", 
+        y="Size", 
+        palette=colors, 
+        hue="Database", 
+        s=7, 
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=.3, 
+        jitter=0.15, 
+        ax=ax, 
+        zorder=1
+    )
+
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC size (b)")
+    ax.set_title("BGC size distribution by dataset")
+
+    plt.xticks(rotation=0, ha="center")
+
+    savefig(
+        fig,
+        outdir / "violin_size_by_dataset.png"
+    )
+
+    # ============================================================
+    # PLOT 2
+    # Size distribution: Complete vs Fragmented
+    # ============================================================
+
+    completeness_data = data.dropna(
+        subset=["completeness"]
+    ).copy()
+
+    completeness_order = [
+        "Complete",
+        "Fragmented"
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=(7, 7)
+    )
+
+    sns.violinplot(
+        data=completeness_data,
+        x="completeness",
+        y="Size",
+        order=completeness_order,
+        color="gray",
+        inner=None,
+        fill=False,
+        cut=0,
+        gap=0.1,
+        linewidth=1,
+        ax=ax,
+        zorder=2
+    )
+
+    sns.boxplot(
+        data=completeness_data,
+        x="completeness",
+        y="Size",
+        fill=False,
+        gap=0.1,
+        linewidth=1,
+        color="gray",
+        zorder=3,
+        order=completeness_order,
+        width=0.18,
+        whis=(0, 100),
+        showcaps=True,
+        boxprops={
+            "color": "black",
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 2
+        },
+        ax=ax,
+    )
+
+    sns.stripplot(
+        data=completeness_data, 
+        x="completeness", 
+        y="Size",
+        color="gray", 
+        s=7, 
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=.3, 
+        jitter=0.15, 
+        ax=ax, 
+        zorder=1
+    )
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC size (b)")
+    ax.set_title("BGC size distribution by completeness")
+
+    savefig(fig, outdir / "violin_size_by_completeness.png")
+
+    # ------------------------------------------------------------
+    # Mann-Whitney U: Complete vs Fragmented
+    # ------------------------------------------------------------
+
+    complete_values = completeness_data.loc[
+        completeness_data["completeness"] == "Complete",
+        "Size"
+    ]
+
+    fragmented_values = completeness_data.loc[
+        completeness_data["completeness"] == "Fragmented",
+        "Size"
+    ]
+
+    mann_whitney_results = []
+
+    if len(complete_values) > 0 and len(fragmented_values) > 0:
+
+        U, p = mannwhitneyu(
+            complete_values,
+            fragmented_values,
+            alternative="two-sided"
+        )
+
+        mann_whitney_results.append(
+            {
+                "Comparison": "Complete vs Fragmented",
+                "N_Complete": len(complete_values),
+                "N_Fragmented": len(fragmented_values),
+                "U": U,
+                "p_value": p,
+                "alpha": alpha,
+                "Significant": p < alpha,
+            }
+        )
+
+    pd.DataFrame(
+        mann_whitney_results
+    ).to_csv(
+        outdir / "size_mann_whitney_complete_fragmented.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # ============================================================
+    # PLOT 3
+    # Completeness + dataset
+    # ============================================================
+
+    fig, ax = plt.subplots(
+        figsize=(max(9, 1.2 * len(datasets)), 7)
+    )
+
+    
+    sns.violinplot(
+        data=completeness_data,
+        x="completeness",
+        y="Size",
+        hue="Database",
+        order=completeness_order,
+        hue_order=datasets,
+        palette=colors,
+        fill=False,
+        cut=0,
+        linewidth=1,
+        ax=ax,
+        zorder=2,
+        inner=None,
+        width=0.8,
+        gap=0,
+        dodge=True
+    )
+
+    sns.boxplot(
+        data=completeness_data,
+        x="completeness",
+        y="Size",
+        hue="Database",
+        fill=False,
+        order=completeness_order,
+        hue_order=datasets,
+        color="gray",
+        palette={
+            d: "gray"
+            for d in datasets
+        },
+        width=0.8,
+        gap=0.7,
+        linewidth=1,
+        whis=(0, 100),
+        dodge=True,
+        legend=False,
+        showcaps=True,
+        boxprops={
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 1.5
+        },
+        ax=ax,
+        zorder=3
+    )
+    
+    sns.stripplot(
+        data=completeness_data,
+        x="completeness",
+        y="Size",
+        hue="Database",
+        order=completeness_order,
+        hue_order=datasets,
+        palette=colors, 
+        s=7,
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=0.3, 
+        jitter=0.15,
+        legend=False,
+        ax=ax, 
+        zorder=1,
+        dodge=True,
+    )
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC size (bp)")
+    ax.set_title(
+        "BGC size distribution by completeness and dataset"
+    )
+
+    ax.legend(
+        title="Dataset",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        frameon=False,
+    )
+
+    savefig(fig, outdir / "violin_size_completeness_by_dataset.png")
+
+    # ============================================================
+    # KRUSKAL-WALLIS
+    # ============================================================
+
+    dataset_groups = []
+
+    for dataset in datasets:
+
+        values = data.loc[
+            data["Database"] == dataset,
+            "Size"
+        ].dropna()
+
+        if len(values) > 0:
+            dataset_groups.append(values)
+
+    kruskal_results = []
+
+    if len(dataset_groups) >= 2:
+
+        H, p = kruskal(
+            *dataset_groups
+        )
+
+        kruskal_results.append(
+            {
+                "Comparison": "All datasets",
+                "K": len(dataset_groups),
+                "H": H,
+                "p_value": p,
+                "alpha": alpha,
+                "Significant": p < alpha,
+            }
+        )
+
+    pd.DataFrame(
+        kruskal_results
+    ).to_csv(
+        outdir / "size_kruskal_wallis_datasets.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # ============================================================
+    # GAMES-HOWELL
+    # Only if Kruskal-Wallis is significant
+    # ============================================================
+
+    games_howell_results = []
+
+    if (
+        len(kruskal_results) > 0
+        and kruskal_results[0]["p_value"] < alpha
+    ):
+
+        if not has_pingouin:
+
+            print(
+                "\nWARNING: pingouin is not installed."
+            )
+
+            print(
+                "Games-Howell was not calculated."
+            )
+
+            print(
+                "Install it with:"
+            )
+
+            print(
+                "pip install pingouin"
+            )
+
+        else:
+
+            gh_data = data[
+                ["Database", "Size"]
+            ].dropna().copy()
+
+            gh = pg.pairwise_gameshowell(
+                data=gh_data,
+                dv="Size",
+                between="Database"
+            )
+
+            gh = gh.rename(
+                columns={
+                    "A": "Dataset_1",
+                    "B": "Dataset_2",
+                    "mean(A)": "Mean_1",
+                    "mean(B)": "Mean_2",
+                    "diff": "Mean_Difference",
+                    "se": "SE",
+                    "T": "T",
+                    "df": "df",
+                    "pval": "p_value",
+                    "hedges": "Hedges_g",
+                }
+            )
+
+            gh["alpha"] = alpha
+            gh["Significant"] = (
+                gh["p_value"] < alpha
+            )
+
+            gh.to_csv(
+                outdir / "size_games_howell_datasets.tsv",
+                sep="\t",
+                index=False
+            )
+
+            games_howell_results = gh.to_dict(
+                orient="records"
+            )
+
+    # ============================================================
+    # Summary of statistics
+    # ============================================================
+
+    stats_summary = []
+
+    for result in kruskal_results:
+        stats_summary.append(
+            {
+                "Test": "Kruskal-Wallis",
+                "Comparison": result["Comparison"],
+                "Statistic": result["H"],
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    for result in mann_whitney_results:
+        stats_summary.append(
+            {
+                "Test": "Mann-Whitney U",
+                "Comparison": result["Comparison"],
+                "Statistic": result["U"],
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    for result in games_howell_results:
+
+        stats_summary.append(
+            {
+                "Test": "Games-Howell",
+                "Comparison": (
+                    f'{result["Dataset_1"]} vs '
+                    f'{result["Dataset_2"]}'
+                ),
+                "Statistic": result.get("T", np.nan),
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    pd.DataFrame(
+        stats_summary
+    ).to_csv(
+        outdir / "size_statistics_summary.tsv",
+        sep="\t",
+        index=False
+    )
+
+
+# ============================================================
+# Database BGC similarity distribution
+# ============================================================
+
+
+def plot_similarity_violin_plots(df, outdir, colors, alpha=0.05):
+    """
+    Create three violin plots with boxplots inside:
+
+    1. similarity distribution by dataset.
+    2. similarity distribution by completeness (Complete vs Fragmented).
+    3. similarity distribution by completeness, separated by dataset.
+
+    Also performs:
+      - Kruskal-Wallis
+      - Mann-Whitney U for Complete vs Fragmented
+      - Games-Howell for dataset pairwise comparisons when
+        Kruskal-Wallis is significant.
+
+    Statistical results are written to TSV files.
+    """
+
+    from scipy.stats import kruskal, mannwhitneyu
+    from statsmodels.stats.multitest import multipletests
+
+    try:
+        import pingouin as pg
+        has_pingouin = True
+    except ImportError:
+        has_pingouin = False
+
+    data = df.copy()
+
+    # ------------------------------------------------------------
+    # Prepare columns
+    # ------------------------------------------------------------
+
+    data["Database"] = (
+        data["Database"]
+        .astype(str)
+        .str.strip()
+    )
+
+    data["BGCs_Hits_BestSimilarity"] = pd.to_numeric(
+        data["BGCs_Hits_BestSimilarity"],
+        errors="coerce"
+    )
+
+    data["completeness"] = (
+        data["completeness"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+    data["completeness"] = data["completeness"].map(
+        {
+            "complete": "Complete",
+            "fragmented": "Fragmented"
+        }
+    )
+
+    data = data.dropna(
+        subset=["Database", "BGCs_Hits_BestSimilarity"]
+    )
+
+    # Remove zero/negative similarities
+    data = data[data["BGCs_Hits_BestSimilarity"] > 0].copy()
+
+    # ------------------------------------------------------------
+    # Dataset order
+    # ------------------------------------------------------------
+
+    datasets = (
+        data["Database"]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    # ============================================================
+    # PLOT 1
+    # Similarity distribution by dataset
+    # ============================================================
+
+    fig, ax = plt.subplots(figsize=(max(7, 1.0 * len(datasets)), 7))
+
+    sns.violinplot(
+        data=data,
+        x="Database",
+        y="BGCs_Hits_BestSimilarity",
+        hue="Database",
+        palette=colors,
+        inner=None,
+        fill=False,
+        cut=0,
+        gap=0.1,
+        linewidth=1,
+        legend=False,
+        ax=ax,
+        zorder=2
+    )
+
+    sns.boxplot(
+        data=data,
+        x="Database",
+        y="BGCs_Hits_BestSimilarity",
+        hue="Database",
+        fill=False,
+        linewidth=1, 
+        linecolor='black',
+        gap=0.1,
+        zorder=3,
+        palette={
+            d: "gray"
+            for d in datasets
+        },
+        width=0.18,
+        whis=(0, 100),
+        legend=False,
+        showcaps=True,
+        boxprops={
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 2
+        },
+        ax=ax,
+    )
+
+    sns.stripplot(
+        data=df, 
+        x="Database", 
+        y="BGCs_Hits_BestSimilarity", 
+        palette=colors, 
+        hue="Database", 
+        s=7, 
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=.3, 
+        jitter=0.15, 
+        ax=ax, 
+        zorder=1
+    )
+
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC similarity (%)")
+    ax.set_title("BGC MIBIG similarity distribution by dataset")
+
+    plt.xticks(rotation=0, ha="center")
+
+    savefig(fig, outdir / "violin_similarity_by_dataset.png")
+
+    # ============================================================
+    # PLOT 2
+    # Similarity distribution: Complete vs Fragmented
+    # ============================================================
+
+    completeness_data = data.dropna(
+        subset=["completeness"]
+    ).copy()
+
+    completeness_order = [
+        "Complete",
+        "Fragmented"
+    ]
+
+    fig, ax = plt.subplots(
+        figsize=(7, 7)
+    )
+
+    sns.violinplot(
+        data=completeness_data,
+        x="completeness",
+        y="BGCs_Hits_BestSimilarity",
+        order=completeness_order,
+        color="gray",
+        inner=None,
+        fill=False,
+        cut=0,
+        gap=0.1,
+        linewidth=1,
+        ax=ax,
+        zorder=2
+    )
+
+    sns.boxplot(
+        data=completeness_data,
+        x="completeness",
+        y="BGCs_Hits_BestSimilarity",
+        fill=False,
+        gap=0.1,
+        linewidth=1,
+        color="gray",
+        zorder=3,
+        order=completeness_order,
+        width=0.18,
+        whis=(0, 100),
+        showcaps=True,
+        boxprops={
+            "color": "black",
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 2
+        },
+        ax=ax,
+    )
+
+    sns.stripplot(
+        data=completeness_data, 
+        x="completeness", 
+        y="BGCs_Hits_BestSimilarity",
+        color="gray", 
+        s=7, 
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=.3, 
+        jitter=0.15, 
+        ax=ax, 
+        zorder=1
+    )
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC similarity (%)")
+    ax.set_title("BGC MIBIG similarity distribution by completeness")
+
+    savefig(fig, outdir / "violin_similarity_by_completeness.png")
+
+    # ------------------------------------------------------------
+    # Mann-Whitney U: Complete vs Fragmented
+    # ------------------------------------------------------------
+
+    complete_values = completeness_data.loc[
+        completeness_data["completeness"] == "Complete",
+        "BGCs_Hits_BestSimilarity"
+    ]
+
+    fragmented_values = completeness_data.loc[
+        completeness_data["completeness"] == "Fragmented",
+        "BGCs_Hits_BestSimilarity"
+    ]
+
+    mann_whitney_results = []
+
+    if len(complete_values) > 0 and len(fragmented_values) > 0:
+
+        U, p = mannwhitneyu(
+            complete_values,
+            fragmented_values,
+            alternative="two-sided"
+        )
+
+        mann_whitney_results.append(
+            {
+                "Comparison": "Complete vs Fragmented",
+                "N_Complete": len(complete_values),
+                "N_Fragmented": len(fragmented_values),
+                "U": U,
+                "p_value": p,
+                "alpha": alpha,
+                "Significant": p < alpha,
+            }
+        )
+
+    pd.DataFrame(
+        mann_whitney_results
+    ).to_csv(
+        outdir / "similarity_mann_whitney_complete_fragmented.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # ============================================================
+    # PLOT 3
+    # Completeness + dataset
+    # ============================================================
+
+    fig, ax = plt.subplots(
+        figsize=(max(9, 1.2 * len(datasets)), 7)
+    )
+
+    
+    sns.violinplot(
+        data=completeness_data,
+        x="completeness",
+        y="BGCs_Hits_BestSimilarity",
+        hue="Database",
+        order=completeness_order,
+        hue_order=datasets,
+        palette=colors,
+        fill=False,
+        cut=0,
+        linewidth=1,
+        ax=ax,
+        zorder=2,
+        inner=None,
+        width=0.8,
+        gap=0,
+        dodge=True
+    )
+
+    sns.boxplot(
+        data=completeness_data,
+        x="completeness",
+        y="BGCs_Hits_BestSimilarity",
+        hue="Database",
+        fill=False,
+        order=completeness_order,
+        hue_order=datasets,
+        color="gray",
+        palette={
+            d: "gray"
+            for d in datasets
+        },
+        width=0.8,
+        gap=0.7,
+        linewidth=1,
+        whis=(0, 100),
+        dodge=True,
+        legend=False,
+        showcaps=True,
+        boxprops={
+            "zorder": 3,
+        },
+        whiskerprops={
+            "color": "black"
+        },
+        capprops={
+            "color": "black"
+        },
+        medianprops={
+            "color": "black",
+            "linewidth": 1.5
+        },
+        ax=ax,
+        zorder=3
+    )
+    
+    sns.stripplot(
+        data=completeness_data,
+        x="completeness",
+        y="BGCs_Hits_BestSimilarity",
+        hue="Database",
+        order=completeness_order,
+        hue_order=datasets,
+        palette=colors, 
+        s=7,
+        linewidth=0.1, 
+        edgecolor="black", 
+        alpha=0.3, 
+        jitter=0.15,
+        legend=False,
+        ax=ax, 
+        zorder=1,
+        dodge=True,
+    )
+
+    ax.set_xlabel("")
+    ax.set_ylabel("BGC similarity (%)")
+    ax.set_title(
+        "BGC MIBIG similarity distribution by completeness and dataset"
+    )
+
+    ax.legend(
+        title="Dataset",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left",
+        frameon=False,
+    )
+
+    savefig(fig, outdir / "violin_similarity_completeness_by_dataset.png")
+
+    # ============================================================
+    # KRUSKAL-WALLIS
+    # ============================================================
+
+    dataset_groups = []
+
+    for dataset in datasets:
+
+        values = data.loc[
+            data["Database"] == dataset,
+            "BGCs_Hits_BestSimilarity"
+        ].dropna()
+
+        if len(values) > 0:
+            dataset_groups.append(values)
+
+    kruskal_results = []
+
+    if len(dataset_groups) >= 2:
+
+        H, p = kruskal(
+            *dataset_groups
+        )
+
+        kruskal_results.append(
+            {
+                "Comparison": "All datasets",
+                "K": len(dataset_groups),
+                "H": H,
+                "p_value": p,
+                "alpha": alpha,
+                "Significant": p < alpha,
+            }
+        )
+
+    pd.DataFrame(
+        kruskal_results
+    ).to_csv(
+        outdir / "similarity_kruskal_wallis_datasets.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # ============================================================
+    # GAMES-HOWELL
+    # Only if Kruskal-Wallis is significant
+    # ============================================================
+
+    games_howell_results = []
+
+    if (
+        len(kruskal_results) > 0
+        and kruskal_results[0]["p_value"] < alpha
+    ):
+
+        if not has_pingouin:
+
+            print(
+                "\nWARNING: pingouin is not installed."
+            )
+
+            print(
+                "Games-Howell was not calculated."
+            )
+
+            print(
+                "Install it with:"
+            )
+
+            print(
+                "pip install pingouin"
+            )
+
+        else:
+
+            gh_data = data[
+                ["Database", "BGCs_Hits_BestSimilarity"]
+            ].dropna().copy()
+
+            gh = pg.pairwise_gameshowell(
+                data=gh_data,
+                dv="BGCs_Hits_BestSimilarity",
+                between="Database"
+            )
+
+            gh = gh.rename(
+                columns={
+                    "A": "Dataset_1",
+                    "B": "Dataset_2",
+                    "mean(A)": "Mean_1",
+                    "mean(B)": "Mean_2",
+                    "diff": "Mean_Difference",
+                    "se": "SE",
+                    "T": "T",
+                    "df": "df",
+                    "pval": "p_value",
+                    "hedges": "Hedges_g",
+                }
+            )
+
+            gh["alpha"] = alpha
+            gh["Significant"] = (
+                gh["p_value"] < alpha
+            )
+
+            gh.to_csv(
+                outdir / "similarity_games_howell_datasets.tsv",
+                sep="\t",
+                index=False
+            )
+
+            games_howell_results = gh.to_dict(
+                orient="records"
+            )
+
+    # ============================================================
+    # Summary of statistics
+    # ============================================================
+
+    stats_summary = []
+
+    for result in kruskal_results:
+        stats_summary.append(
+            {
+                "Test": "Kruskal-Wallis",
+                "Comparison": result["Comparison"],
+                "Statistic": result["H"],
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    for result in mann_whitney_results:
+        stats_summary.append(
+            {
+                "Test": "Mann-Whitney U",
+                "Comparison": result["Comparison"],
+                "Statistic": result["U"],
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    for result in games_howell_results:
+
+        stats_summary.append(
+            {
+                "Test": "Games-Howell",
+                "Comparison": (
+                    f'{result["Dataset_1"]} vs '
+                    f'{result["Dataset_2"]}'
+                ),
+                "Statistic": result.get("T", np.nan),
+                "p_value": result["p_value"],
+                "Significant": result["Significant"],
+            }
+        )
+
+    pd.DataFrame(
+        stats_summary
+    ).to_csv(
+        outdir / "similarity_statistics_summary.tsv",
+        sep="\t",
+        index=False
+    )
+
+
+
+# ============================================================
+# General summary
+# ============================================================
+
+def write_summary(df, outdir):
+    rows = []
+
+    for db, g in df.groupby("Database"):
+        rows.append({
+            "Database": db,
+            "BGC_count": len(g),
+            "Complete_BGCs": (g["completeness"].astype(str).str.lower() == "complete").sum(),
+            "Fragmented_BGCs": (g["completeness"].astype(str).str.lower() == "fragmented").sum(),
+            "Resistance_BGCs": g["KnownResistanceHit_product"].notna().sum(),
+            "Regulatory_BGCs": g["regulatory_genes"].sum(),
+            "Similarity_values": g[SIM_COL].notna().sum(),
+            "Mean_similarity": g[SIM_COL].mean(),
+            "Median_similarity": g[SIM_COL].median()
+        })
+
+    pd.DataFrame(rows).to_csv(
+        outdir / "dataset_summary.csv",
+        index=False
+    )
+
+
+# ============================================================
+# BiG-SCAPE
+# ============================================================
+
+def plot_bigscape(df, outdir):
+    for col, stem, title in [
+        ("BiGSCAPE_Category", "bigscape_category_percentage", "BiG-SCAPE category composition"),
+        ("BiGSCAPE_Class", "bigscape_class_percentage", "BiG-SCAPE class composition")
+    ]:
+        d = df.dropna(subset=[col])
+
+        if d.empty:
+            continue
+
+        counts = pd.crosstab(d["Database"], d[col])
+        pct = counts.div(counts.sum(axis=1), axis=0) * 100
+
+        ax = pct.plot(kind="bar", stacked=True, figsize=(12, 7))
+        ax.set_xlabel("Database")
+        ax.set_ylabel("BGCs (%)")
+        ax.set_title(title)
+        ax.legend(title=col, bbox_to_anchor=(1.02, 1), loc="upper left")
+
+        savefig(ax.figure, outdir / f"{stem}.png")
+        pct.round(3).to_csv(outdir / f"{stem}.csv")
+
+
+def plot_product_prediction(df, outdir):
+    d = df.dropna(subset=["product"])
+
+    if d.empty:
+        return
+
+    rows = []
+
+    for _, r in d.iterrows():
+        for product in split_cell(r["product"]):
+            rows.append({
+                "Database": r["Database"],
+                "Product": product
+            })
+
+    x = pd.DataFrame(rows)
+
+    if x.empty:
+        return
+
+    counts = pd.crosstab(x["Database"], x["Product"])
+    pct = counts.div(counts.sum(axis=1), axis=0) * 100
+
+    ax = pct.plot(kind="bar", stacked=True, figsize=(12, 7))
+    ax.set_xlabel("Database")
+    ax.set_ylabel("Product predictions (%)")
+    ax.set_title("Product Prediction by database")
+    ax.legend(title="Product", bbox_to_anchor=(1.02, 1), loc="upper left")
+
+    savefig(
+        ax.figure,
+        outdir / "product_prediction_percentage.png"
+    )
+
+    pct.round(3).to_csv(
+        outdir / "product_prediction_percentage.csv"
+    )
+
+
+# ============================================================
+# Resistance
+# ============================================================
+
+def resistance_long(df):
+    rows = []
+
+    for idx, r in df.iterrows():
+        vals = split_cell(r["KnownResistanceHit_product"])
+
+        if not vals:
+            vals = split_cell(r["KnownResistanceHit_Resfam"])
+
+        for value in vals:
+            rows.append({
+                "row_id": idx,
+                "Database": r["Database"],
+                "Resistance": value
+            })
+
+    return pd.DataFrame(rows)
+
+
+def plot_resistance(df, outdir):
+    long = resistance_long(df)
+
+    if long.empty:
+        return
+
+    counts = pd.crosstab(long["Database"], long["Resistance"])
+    pct = counts.div(counts.sum(axis=1), axis=0) * 100
+
+    fig, ax = plt.subplots(figsize=(12, max(5, 0.35 * len(pct.columns))))
+    sns.heatmap(pct, annot=True, fmt=".1f", cmap="viridis", ax=ax)
+    ax.set_xlabel("Resistance-associated hit")
+    ax.set_ylabel("Database")
+    ax.set_title("Resistance hit composition by database")
+
+    savefig(fig, outdir / "resistance_heatmap.png")
+
+    ax = pct.plot(kind="bar", stacked=True, figsize=(12, 7))
+    ax.set_xlabel("Database")
+    ax.set_ylabel("Resistance hits (%)")
+    ax.set_title("Resistance hit composition")
+    ax.legend(title="Resistance", bbox_to_anchor=(1.02, 1), loc="upper left")
+
+    savefig(ax.figure, outdir / "resistance_stacked_bar.png")
+
+    pct.round(3).to_csv(
+        outdir / "resistance_percentage.csv"
+    )
+
+    binary = pd.crosstab(
+        long["row_id"],
+        long["Resistance"]
+    ).clip(upper=1)
+
+    binary = binary.reindex(
+        df.index,
+        fill_value=0
+    )
+
+    binary.insert(
+        0,
+        "Database",
+        df["Database"].values
+    )
+
+    binary.insert(
+        1,
+        "BGC_index",
+        df.index
+    )
+
+    binary.to_csv(
+        outdir / "resistance_bgc_binary_matrix.csv",
+        index=False
+    )
+
+    plot_upset(
+        binary.drop(columns=["Database", "BGC_index"]),
+        "Resistance hit combinations",
+        outdir / "resistance_upset.png"
+    )
+
+
+# ============================================================
+# Regulatory genes
+# ============================================================
+
+def extract_regulatory_families(value):
+    if pd.isna(value):
+        return []
+
+    try:
+        data = ast.literal_eval(str(value))
+    except Exception:
+        return []
+
+    if not isinstance(data, list):
+        return []
+
+    found = []
+
+    for gene in data:
+        if not isinstance(gene, list) or len(gene) < 7:
+            continue
+
+        categories = gene[6]
+
+        if not isinstance(categories, list):
+            continue
+
+        if not any("regulatory" in str(x).lower() for x in categories):
+            continue
+
+        annotations = (
+            gene[5]
+            if len(gene) > 5 and isinstance(gene[5], list)
+            else []
+        )
+
+        for annotation in annotations:
+            s = str(annotation)
+
+            m = re.search(
+                r"SMCOG\d+:([^\(]+)",
+                s
+            )
+
+            if m:
+                found.append(m.group(1).strip())
+            else:
+                s = re.sub(
+                    r"^.*?regulatory\s*\([^)]*\)\s*",
+                    "",
+                    s,
+                    flags=re.I
+                )
+
+                if s:
+                    found.append(
+                        s.split(";")[0].strip()
+                    )
+
+    return list(dict.fromkeys(found))
+
+
+def regulatory_long(df):
+    rows = []
+
+    for idx, r in df.iterrows():
+        families = extract_regulatory_families(r["genes"])
+
+        if not families and r["regulatory_genes"]:
+            families = ["Regulatory gene"]
+
+        for family in families:
+            rows.append({
+                "row_id": idx,
+                "Database": r["Database"],
+                "Regulatory_gene": family
+            })
+
+    return pd.DataFrame(rows)
+
+
+def plot_regulatory(df, outdir):
+    long = regulatory_long(df)
+
+    if long.empty:
+        return
+
+    counts = pd.crosstab(
+        long["Database"],
+        long["Regulatory_gene"]
+    )
+
+    pct = counts.div(
+        counts.sum(axis=1),
+        axis=0
+    ) * 100
+
+    fig, ax = plt.subplots(
+        figsize=(12, max(5, 0.35 * len(pct.columns)))
+    )
+
+    sns.heatmap(
+        pct,
+        annot=True,
+        fmt=".1f",
+        cmap="magma",
+        ax=ax
+    )
+
+    ax.set_xlabel("Regulatory gene family")
+    ax.set_ylabel("Database")
+    ax.set_title("Regulatory gene families by database")
+
+    savefig(
+        fig,
+        outdir / "regulatory_heatmap.png"
+    )
+
+    ax = pct.plot(
+        kind="bar",
+        stacked=True,
+        figsize=(12, 7)
+    )
+
+    ax.set_xlabel("Database")
+    ax.set_ylabel("Regulatory gene families (%)")
+    ax.set_title("Regulatory gene family composition")
+
+    ax.legend(
+        title="Regulatory gene",
+        bbox_to_anchor=(1.02, 1),
+        loc="upper left"
+    )
+
+    savefig(
+        ax.figure,
+        outdir / "regulatory_stacked_bar.png"
+    )
+
+    pct.round(3).to_csv(
+        outdir / "regulatory_percentage.csv"
+    )
+
+    binary = pd.crosstab(
+        long["row_id"],
+        long["Regulatory_gene"]
+    ).clip(upper=1)
+
+    binary = binary.reindex(
+        df.index,
+        fill_value=0
+    )
+
+    binary.insert(
+        0,
+        "Database",
+        df["Database"].values
+    )
+
+    binary.insert(
+        1,
+        "BGC_index",
+        df.index
+    )
+
+    binary.to_csv(
+        outdir / "regulatory_bgc_binary_matrix.csv",
+        index=False
+    )
+
+    plot_upset(
+        binary.drop(columns=["Database", "BGC_index"]),
+        "Regulatory gene family combinations",
+        outdir / "regulatory_upset.png"
+    )
+
+
+# ============================================================
+# UpSet
+# ============================================================
+
+def plot_upset(binary, title, path, max_sets=12):
+    if binary.empty or binary.shape[1] == 0:
+        return
+
+    cols = (
+        binary.sum()
+        .sort_values(ascending=False)
+        .head(max_sets)
+        .index
+        .tolist()
+    )
+
+    b = binary[cols].astype(int)
+    combos = []
+
+    for bits in itertools.product([0, 1], repeat=len(cols)):
+        mask = np.ones(len(b), dtype=bool)
+
+        for col, bit in zip(cols, bits):
+            mask &= b[col].to_numpy() == bit
+
+        n = int(mask.sum())
+
+        if n and sum(bits):
+            combos.append((bits, n))
+
+    combos.sort(
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    combos = combos[:20]
+
+    if not combos:
+        return
+
+    x = np.arange(len(combos))
+
+    fig, (axbar, axmat) = plt.subplots(
+        2,
+        1,
+        figsize=(max(9, 0.55 * len(combos)), 8),
+        gridspec_kw={"height_ratios": [2.2, 3]},
+        sharex=True
+    )
+
+    axbar.bar(
+        x,
+        [n for _, n in combos]
+    )
+
+    axbar.set_ylabel("BGC count")
+    axbar.set_title(title)
+
+    for i, (bits, _) in enumerate(combos):
+        active = [j for j, bit in enumerate(bits) if bit]
+
+        for j in range(len(cols)):
+            axmat.scatter(
+                i,
+                j,
+                s=35 if j in active else 18,
+                alpha=1 if j in active else 0.18
+            )
+
+        if len(active) > 1:
+            axmat.plot(
+                [i, i],
+                [min(active), max(active)],
+                linewidth=1
+            )
+
+    axmat.set_yticks(range(len(cols)))
+    axmat.set_yticklabels(cols)
+    axmat.set_ylabel("Set")
+    axmat.set_xlabel("Intersection")
+
+    savefig(
+        fig,
+        path
+    )
+
+
+# ============================================================
+# Similarity
+# ============================================================
+
+def plot_similarity(df, outdir, colors):
+    d = df.dropna(subset=[SIM_COL]).copy()
+
+    if d.empty:
+        return
+
+    order = (
+        d["Database"]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    palette = {
+        db: colors.get(
+            db,
+            (0.5, 0.5, 0.5)
+        )
+        for db in order
+    }
+
+    # Boxplot.
+    fig, ax = plt.subplots(
+        figsize=(max(6, 1.2 * len(order)), 6)
+    )
+
+    sns.boxplot(
+        data=d,
+        x="Database",
+        y=SIM_COL,
+        order=order,
+        hue="Database",
+        palette=palette,
+        legend=False,
+        ax=ax
+    )
+
+    sns.stripplot(
+        data=d,
+        x="Database",
+        y=SIM_COL,
+        order=order,
+        color="black",
+        alpha=0.65,
+        jitter=True,
+        ax=ax
+    )
+
+    ax.set_title(
+        "BGC hit mean similarity by database"
+    )
+
+    ax.set_ylabel(
+        "Mean similarity (%)"
+    )
+
+    savefig(
+        fig,
+        outdir / "similarity_boxplot.png"
+    )
+
+    # Histogram.
+    fig, ax = plt.subplots(
+        figsize=(9, 6)
+    )
+
+    for db, g in d.groupby(
+        "Database",
+        sort=False
+    ):
+        ax.hist(
+            g[SIM_COL],
+            bins="auto",
+            alpha=0.55,
+            label=db,
+            color=colors.get(
+                db,
+                (0.5, 0.5, 0.5)
+            )
+        )
+
+    ax.set_xlabel(
+        "Mean similarity (%)"
+    )
+
+    ax.set_ylabel(
+        "BGC count"
+    )
+
+    ax.set_title(
+        "Distribution of BGC hit mean similarities"
+    )
+
+    ax.legend()
+
+    savefig(
+        fig,
+        outdir / "similarity_histogram.png"
+    )
+
+    # Q-Q plot.
+    fig, ax = plt.subplots(
+        figsize=(7, 7)
+    )
+
+    stats.probplot(
+        d[SIM_COL],
+        dist="norm",
+        plot=ax
+    )
+
+    ax.set_title(
+        "Q-Q plot: BGC hit mean similarity"
+    )
+
+    savefig(
+        fig,
+        outdir / "similarity_qqplot.png"
+    )
+
+    d[
+        ["Database", SIM_COL]
+    ].to_csv(
+        outdir / "similarity_values.csv",
+        index=False
+    )
+
+    similarity_statistics(
+        d,
+        outdir
+    )
+
+
+def bh_adjust(p):
+    p = np.asarray(p, dtype=float)
+    n = len(p)
+    order = np.argsort(p)
+    ranked = p[order] * n / np.arange(1, n + 1)
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    result = np.empty(n)
+    result[order] = np.minimum(ranked, 1)
+    return result
+
+
+def games_howell(groups):
+    if len(groups) < 2 or not hasattr(stats, "studentized_range"):
+        return pd.DataFrame()
+
+    rows = []
+
+    for a, b in itertools.combinations(groups, 2):
+        x = np.asarray(groups[a], dtype=float)
+        y = np.asarray(groups[b], dtype=float)
+
+        x = x[np.isfinite(x)]
+        y = y[np.isfinite(y)]
+
+        if len(x) < 2 or len(y) < 2:
+            continue
+
+        nx, ny = len(x), len(y)
+        mx, my = np.mean(x), np.mean(y)
+        vx, vy = np.var(x, ddof=1), np.var(y, ddof=1)
+
+        se = math.sqrt(vx / nx + vy / ny)
+
+        if se == 0:
+            continue
+
+        q = abs(mx - my) / se
+
+        df_num = (vx / nx + vy / ny) ** 2
+
+        df_den = (
+            vx ** 2 / (nx ** 2 * (nx - 1))
+            + vy ** 2 / (ny ** 2 * (ny - 1))
+        )
+
+        df_welch = df_num / df_den if df_den else np.nan
+
+        p = stats.studentized_range.sf(
+            q * math.sqrt(2),
+            len(groups),
+            df_welch
+        )
+
+        rows.append({
+            "group1": a,
+            "group2": b,
+            "n1": nx,
+            "n2": ny,
+            "mean1": mx,
+            "mean2": my,
+            "difference": mx - my,
+            "q": q,
+            "df": df_welch,
+            "pvalue": p
+        })
+
+    result = pd.DataFrame(rows)
+
+    if not result.empty:
+        result["pvalue_BH"] = bh_adjust(
+            result["pvalue"]
+        )
+
+    return result
+
+
+def similarity_statistics(df, outdir):
+    groups = {
+        db: g[SIM_COL].dropna().to_numpy()
+        for db, g in df.groupby("Database")
+    }
+
+    groups = {
+        k: v
+        for k, v in groups.items()
+        if len(v)
+    }
+
+    rows = []
+
+    if len(groups) >= 2:
+        h, p = stats.kruskal(*groups.values())
+
+        rows.append({
+            "test": "Kruskal-Wallis",
+            "statistic": h,
+            "pvalue": p,
+            "comparison": ""
+        })
+
+        for a, b in itertools.combinations(groups, 2):
+            u, p = stats.mannwhitneyu(
+                groups[a],
+                groups[b],
+                alternative="two-sided"
+            )
+
+            rows.append({
+                "test": "Mann-Whitney U",
+                "statistic": u,
+                "pvalue": p,
+                "comparison": f"{a} vs {b}"
+            })
+
+    pd.DataFrame(rows).to_csv(
+        outdir / "similarity_statistics.csv",
+        index=False
+    )
+
+    gh = games_howell(groups)
+
+    if not gh.empty:
+        gh.to_csv(
+            outdir / "games_howell.csv",
+            index=False
+        )
+
+
+# ============================================================
+# Resistance dendrogram
+# ============================================================
+
+def plot_resistance_dendrogram(df, outdir):
+    path = outdir / "resistance_bgc_binary_matrix.csv"
+
+    if not path.exists():
+        return
+
+    binary = pd.read_csv(path)
+
+    meta = binary[
+        ["BGC_index", "Database"]
+    ]
+
+    x = binary.drop(
+        columns=["BGC_index", "Database"],
+        errors="ignore"
+    )
+
+    if x.shape[0] < 2 or x.shape[1] < 1:
+        return
+
+    x = x.loc[:, x.nunique(dropna=False) > 1]
+
+    if x.shape[1] == 0:
+        return
+
+    dist = pdist(
+        x.to_numpy(dtype=float),
+        metric="jaccard"
+    )
+
+    z = linkage(
+        dist,
+        method="average"
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(11, max(6, 0.35 * len(x)))
+    )
+
+    dendrogram(
+        z,
+        labels=[
+            f"{db} | BGC {idx}"
+            for db, idx in zip(
+                meta["Database"],
+                meta["BGC_index"]
+            )
+        ],
+        orientation="right",
+        ax=ax
+    )
+
+    ax.set_title(
+        "Resistance-profile dendrogram"
+    )
+
+    ax.set_xlabel(
+        "Jaccard distance"
+    )
+
+    savefig(
+        fig,
+        outdir / "resistance_dendrogram.png"
+    )
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate consolidated plots from Krill results."
+    )
+
+    parser.add_argument(
+        "input",
+        type=Path,
+        help="DBs_BGCs_with_Hits_BiGSCAPE.tsv"
+    )
+
+    parser.add_argument(
+        "--input-path",
+        type=Path,
+        default=None,
+        help="Krill input directory. If omitted, inferred automatically."
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=Path("KrillPlots"),
+        help="Output directory."
+    )
+
+    args = parser.parse_args()
+
+    outdir = args.output.resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    sns.set_theme(style="whitegrid")
+
+    # ------------------------------------------------------------
+    # Main input
+    # ------------------------------------------------------------
+
+    df = read_input(
+        args.input
+    )
+
+    # ------------------------------------------------------------
+    # Dynamic dataset colors
+    # ------------------------------------------------------------
+
+    DATASET_COLORS = create_dataset_colors(
+        df
+    )
+
+    print(
+        "\nDatasets detected:"
+    )
+
+    for db, color in DATASET_COLORS.items():
+        print(
+            f"  {db}: {matplotlib.colors.to_hex(color)}"
+        )
+
+    # ------------------------------------------------------------
+    # Output directories
+    # ------------------------------------------------------------
+
+    product_dir = outdir / "01_products_bigscape"
+    resistance_dir = outdir / "02_resistance"
+    regulatory_dir = outdir / "03_regulatory"
+    similarity_dir = outdir / "04_similarity"
+
+    for directory in [
+        product_dir,
+        resistance_dir,
+        regulatory_dir,
+        similarity_dir
+    ]:
+        directory.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+    # ------------------------------------------------------------
+    # General summary
+    # ------------------------------------------------------------
+
+    write_summary(
+        df,
+        outdir
+    )
+
+    # ------------------------------------------------------------
+    # Database size / BGC / BGC density / MIBIG similarity
+    # ------------------------------------------------------------
+
+    krill_input = find_input_path(
+        args.input,
+        args.input_path
+    )
+
+    plot_database_summary(
+        args.input,
+        krill_input,
+        outdir,
+        df,
+        DATASET_COLORS
+    )
+
+    plot_cumulative_percentage_bars(
+        df,
+        outdir,
+        DATASET_COLORS
+    )
+
+    plot_size_violin_plots(
+        df,
+        outdir,
+        DATASET_COLORS
+    )
+
+    plot_similarity_violin_plots(
+        df,
+        outdir,
+        DATASET_COLORS
+    )
+
+    # ------------------------------------------------------------
+    # BiG-SCAPE
+    # ------------------------------------------------------------
+
+    plot_bigscape(
+        df,
+        product_dir
+    )
+
+    plot_product_prediction(
+        df,
+        product_dir
+    )
+
+    # ------------------------------------------------------------
+    # Resistance
+    # ------------------------------------------------------------
+
+    plot_resistance(
+        df,
+        resistance_dir
+    )
+
+    plot_resistance_dendrogram(
+        df,
+        resistance_dir
+    )
+
+    # ------------------------------------------------------------
+    # Regulatory genes
+    # ------------------------------------------------------------
+
+    plot_regulatory(
+        df,
+        regulatory_dir
+    )
+
+    # ------------------------------------------------------------
+    # Similarity
+    # ------------------------------------------------------------
+
+    plot_similarity(
+        df,
+        similarity_dir,
+        DATASET_COLORS
+    )
+
+    print(
+        "\nAnalysis completed."
+    )
+
+    print(
+        f"Input: {args.input}"
+    )
+
+    print(
+        f"Databases: {df['Database'].nunique()}"
+    )
+
+    print(
+        f"BGCs: {len(df)}"
+    )
+
+    print(
+        f"Output: {outdir}\n"
+    )
+
+
+if __name__ == "__main__":
+    main()
