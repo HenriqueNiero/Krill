@@ -1563,6 +1563,782 @@ def plot_similarity_violin_plots(df, outdir, colors, alpha=0.05):
     )
 
 
+# ============================================================
+# Database BGC product distribution
+# ============================================================
+
+
+def plot_product_and_bigscape_summaries(df, outdir, input_path=None):
+    """
+    Generate:
+      1. All antiSMASH product occurrences.
+      2. Top 20 antiSMASH products.
+      3. Pie chart of antiSMASH product occurrences.
+      4. All BiG-SCAPE category occurrences.
+      5. Pie chart of BiG-SCAPE category occurrences.
+      6. 100% stacked BiG-SCAPE category plot by dataset,
+         with genome size (MB) shown as dots on a secondary axis.
+
+    Comma-separated product values are split and counted separately.
+    """
+
+    from matplotlib.patches import Patch
+    from matplotlib.lines import Line2D
+
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # ------------------------------------------------------------
+    # Validate and prepare data
+    # ------------------------------------------------------------
+
+    required = ["Database", "product", "BiGSCAPE_Category"]
+
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Missing required columns: {missing}"
+        )
+
+    data = df.copy()
+
+    data["Database"] = (
+        data["Database"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    datasets = data.loc[
+        data["Database"].ne(""),
+        "Database"
+    ].drop_duplicates().tolist()
+
+    # ------------------------------------------------------------
+    # Split comma-separated values
+    # ------------------------------------------------------------
+
+    def split_values(value):
+        if pd.isna(value):
+            return []
+
+        value = str(value).strip()
+
+        if value.lower() in {"", "nan", "none", "na"}:
+            return []
+
+        return [
+            item.strip()
+            for item in value.split(",")
+            if item.strip()
+        ]
+
+    # ------------------------------------------------------------
+    # antiSMASH product counts
+    # ------------------------------------------------------------
+
+    product_records = []
+
+    for _, row in data.iterrows():
+        for product in split_values(row["product"]):
+            product_records.append({
+                "Database": row["Database"],
+                "Product": product
+            })
+
+    product_long = pd.DataFrame(
+        product_records,
+        columns=["Database", "Product"]
+    )
+
+    if product_long.empty:
+        product_counts = pd.DataFrame(
+            columns=["Product", "Occurrences"]
+        )
+    else:
+        product_counts = (
+            product_long["Product"]
+            .value_counts()
+            .rename_axis("Product")
+            .reset_index(name="Occurrences")
+        )
+
+    product_counts.to_csv(
+        outdir / "antismash_product_occurrences.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # Dynamic, consistent colors for each product type.
+    product_names = product_counts["Product"].tolist()
+
+    product_palette = dict(zip(
+        product_names,
+        sns.color_palette(
+            "husl",
+            n_colors=max(1, len(product_names))
+        )
+    ))
+
+    # ------------------------------------------------------------
+    # BiG-SCAPE category colors
+    # ------------------------------------------------------------
+
+    def category_color(category):
+        cat = str(category).strip().lower().replace(" ", "")
+
+        # Mixed NRPS/PKS categories take precedence.
+        if "nrps" in cat and "pks" in cat:
+            return "#F1C40F"  # Yellow
+
+        if "ripp" in cat:
+            return "#E74C3C"  # Red
+
+        if "nrps" in cat:
+            return "#2ECC71"  # Green
+
+        if "pks" in cat:
+            return "#E67E22"  # Orange
+
+        if "terpene" in cat:
+            return "#8E44AD"  # Purple
+
+        return "#808080"      # Gray / other
+
+    # ------------------------------------------------------------
+    # Shared horizontal bar plotting function
+    # ------------------------------------------------------------
+
+    def horizontal_count_plot(
+        counts,
+        label_col,
+        filename,
+        title,
+        color_func
+    ):
+        if counts.empty:
+            print(f"Skipping empty plot: {filename}")
+            return
+
+        counts = counts.sort_values(
+            "Occurrences",
+            ascending=True
+        ).copy()
+
+        fig, ax = plt.subplots(
+            figsize=(11, max(4, 0.35 * len(counts) + 1))
+        )
+
+        bars = ax.barh(
+            counts[label_col],
+            counts["Occurrences"],
+            color=[
+                color_func(value)
+                for value in counts[label_col]
+            ],
+            edgecolor="black",
+            linewidth=0.4
+        )
+
+        ax.bar_label(
+            bars,
+            labels=[
+                str(int(value))
+                for value in counts["Occurrences"]
+            ],
+            padding=3,
+            fontsize=8,
+            color="black"
+        )
+
+        ax.set_xlabel("Number of occurrences")
+        ax.set_ylabel(label_col)
+        ax.set_title(title)
+
+        savefig(fig, outdir / filename)
+
+    # ------------------------------------------------------------
+    # All products and top 20 products
+    # ------------------------------------------------------------
+
+    horizontal_count_plot(
+        product_counts,
+        "Product",
+        "antismash_all_product_occurrences.png",
+        "antiSMASH product occurrences",
+        lambda value: product_palette[value]
+    )
+
+    top20_products = (
+        product_counts
+        .sort_values("Occurrences", ascending=False)
+        .head(20)
+    )
+
+    top20_products.to_csv(
+        outdir / "antismash_top20_product_occurrences.tsv",
+        sep="\t",
+        index=False
+    )
+
+    horizontal_count_plot(
+        top20_products,
+        "Product",
+        "antismash_top20_product_occurrences.png",
+        "Top 20 antiSMASH product occurrences",
+        lambda value: product_palette[value]
+    )
+
+    # ------------------------------------------------------------
+    # Product pie chart
+    # ------------------------------------------------------------
+
+    if not product_counts.empty:
+        pie_data = product_counts.sort_values(
+            "Occurrences",
+            ascending=False
+        )
+
+        fig, ax = plt.subplots(figsize=(11, 9))
+
+        ax.pie(
+            pie_data["Occurrences"],
+            labels=pie_data["Product"],
+            colors=[
+                product_palette[value]
+                for value in pie_data["Product"]
+            ],
+            autopct=lambda p: f"{p:.1f}%" if p >= 2 else "",
+            startangle=90,
+            pctdistance=0.72,
+            textprops={"fontsize": 8}
+        )
+
+        ax.set_title(
+            "Distribution of antiSMASH product occurrences"
+        )
+
+        savefig(
+            fig,
+            outdir / "antismash_product_occurrences_pie.png"
+        )
+
+    # ------------------------------------------------------------
+    # BiG-SCAPE category counts
+    # Each original category value is counted as one category.
+    # For example, NRPS.PKS remains a single category.
+    # ------------------------------------------------------------
+
+    category_data = data[
+        ["Database", "BiGSCAPE_Category"]
+    ].copy()
+
+    category_data["BiGSCAPE_Category"] = (
+        category_data["BiGSCAPE_Category"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    category_data = category_data[
+        category_data["BiGSCAPE_Category"].ne("")
+        & ~category_data["BiGSCAPE_Category"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ]
+
+    category_counts = (
+        category_data["BiGSCAPE_Category"]
+        .value_counts()
+        .rename_axis("BiGSCAPE_Category")
+        .reset_index(name="Occurrences")
+    )
+
+    category_counts.to_csv(
+        outdir / "bigscape_category_occurrences.tsv",
+        sep="\t",
+        index=False
+    )
+
+    horizontal_count_plot(
+        category_counts,
+        "BiGSCAPE_Category",
+        "bigscape_all_category_occurrences.png",
+        "BiG-SCAPE category occurrences",
+        category_color
+    )
+
+    # ------------------------------------------------------------
+    # BiG-SCAPE category pie chart
+    # ------------------------------------------------------------
+
+    if not category_counts.empty:
+        pie_data = category_counts.sort_values(
+            "Occurrences",
+            ascending=False
+        )
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        ax.pie(
+            pie_data["Occurrences"],
+            labels=pie_data["BiGSCAPE_Category"],
+            colors=[
+                category_color(value)
+                for value in pie_data["BiGSCAPE_Category"]
+            ],
+            autopct=lambda p: f"{p:.1f}%" if p >= 2 else "",
+            startangle=90,
+            pctdistance=0.72,
+            textprops={"fontsize": 9}
+        )
+
+        ax.set_title(
+            "Distribution of BiG-SCAPE category occurrences"
+        )
+
+        savefig(
+            fig,
+            outdir / "bigscape_category_occurrences_pie.png"
+        )
+
+    # ------------------------------------------------------------
+    # 100% stacked category percentages by dataset
+    # ------------------------------------------------------------
+
+    category_by_dataset = (category_data.groupby(["Database", "BiGSCAPE_Category"]).size().unstack(fill_value=0))
+
+    category_by_dataset = category_by_dataset.reindex(datasets, fill_value=0)
+
+    categories = sorted(category_by_dataset.columns.tolist())
+
+    category_by_dataset = category_by_dataset[categories]
+
+    totals = category_by_dataset.sum(axis=1)
+
+    percentages = (category_by_dataset.div(totals.replace(0, np.nan), axis=0).mul(100).fillna(0))
+
+    percentages.to_csv(outdir / "bigscape_category_percentages_by_dataset.tsv", sep="\t", index_label="Database")
+
+
+    # ------------------------------------------------------------
+    # Load dataset sizes from the existing KrillPlots summary
+    # ------------------------------------------------------------
+
+    size_path = outdir / "database_size_bgc_summary.csv"
+
+    if not size_path.exists():
+        raise FileNotFoundError(
+            f"Could not find dataset size summary: {size_path}"
+        )
+
+    info = pd.read_csv(size_path, low_memory=False)
+
+    required_size_columns = {"Database", "NT_MB"}
+    missing = required_size_columns - set(info.columns)
+
+    if missing:
+        raise ValueError(
+            f"{size_path} is missing columns: {sorted(missing)}"
+        )
+
+    info["Database"] = (
+        info["Database"].astype(str).str.strip()
+    )
+    info["NT_MB"] = pd.to_numeric(
+        info["NT_MB"], errors="coerce"
+    )
+
+    info = (
+        info.dropna(subset=["Database", "NT_MB"])
+        .groupby("Database", as_index=False)["NT_MB"]
+        .sum()
+    )
+
+    genome_sizes = (
+        info.set_index("Database")["NT_MB"]
+        .reindex(datasets)
+    )
+
+    # Save summary values for checking.
+    pd.DataFrame({
+        "Database": datasets,
+        "NT_MB": genome_sizes.to_numpy(),
+        "BGCs_with_category": totals.reindex(datasets).to_numpy()
+    }).to_csv(
+        outdir / "bigscape_category_dataset_summary.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # ------------------------------------------------------------
+    # Stacked percentage plot + genome-size dots
+    # ------------------------------------------------------------
+
+    x = np.arange(len(datasets))
+
+    fig, ax1 = plt.subplots(
+        figsize=(max(10, 1.2 * len(datasets)), 7)
+    )
+
+    bottom = np.zeros(len(datasets))
+
+    for category in categories:
+        values = percentages[category].reindex(
+            datasets,
+            fill_value=0
+        ).to_numpy()
+
+        ax1.bar(
+            x,
+            values,
+            bottom=bottom,
+            color=category_color(category),
+            edgecolor="white",
+            linewidth=0.5,
+            label=category
+        )
+
+        bottom += values
+    
+    ax1.grid(False)
+    ax1.set_ylim(0, 100)
+    ax1.set_ylabel("BGCs by BiG-SCAPE category (%)")
+    ax1.set_xlabel("Dataset")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(
+        datasets,
+        rotation=45,
+        ha="right"
+    )
+
+    ax1.set_title(
+        "BiG-SCAPE category composition and dataset size"
+    )
+
+    ax2 = ax1.twinx()
+
+    size_values = genome_sizes.to_numpy()
+    valid = np.isfinite(size_values)
+
+    ax2.scatter(
+        x[valid],
+        size_values[valid],
+        color="black",
+        marker="o",
+        s=65,
+        edgecolor="white",
+        linewidth=0.7,
+        zorder=10
+    )
+
+    ax2.set_ylabel("Dataset size (MB)")
+
+    ax2.grid(False)
+
+    category_handles = [
+        Patch(
+            facecolor=category_color(category),
+            edgecolor="white",
+            label=category
+        )
+        for category in categories
+    ]
+
+    size_handle = Line2D(
+        [0], [0],
+        marker="o",
+        color="black",
+        linestyle="None",
+        markersize=8,
+        label="Dataset size (MB)"
+    )
+
+    ax1.legend(
+        handles=category_handles + [size_handle],
+        title="BiG-SCAPE category / dataset size",
+        bbox_to_anchor=(1.20, 1),
+        loc="upper left",
+        frameon=False
+    )
+
+    savefig(
+        fig,
+        outdir / "bigscape_category_percentage_and_dataset_size.png"
+    )
+
+    print("Product and BiG-SCAPE summary plots generated.")
+
+
+
+# ============================================================
+# Datasets antiSMASH product heatmap
+# ============================================================
+
+def plot_product_heatmap(df, outdir):
+    """
+    Heatmap of antiSMASH product annotations by dataset.
+
+    Y-axis: original product cell values, kept intact.
+    X-axis: datasets.
+    Cell values: number of BGCs with each exact product annotation.
+    Comma-separated values are NOT split.
+    """
+
+    data = df.copy()
+
+    data["Database"] = (
+        data["Database"].fillna("").astype(str).str.strip()
+    )
+
+    data["product"] = (
+        data["product"].fillna("").astype(str).str.strip()
+    )
+
+    # Exclude empty or missing product annotations.
+    data = data[
+        data["Database"].ne("")
+        & data["product"].ne("")
+        & ~data["product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print("No antiSMASH product annotations found; skipping heatmap.")
+        return
+
+    # Keep each complete cell value as one category.
+    counts = pd.crosstab(
+        data["product"],
+        data["Database"]
+    )
+
+    # Preserve dataset order used in the input table.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(
+        columns=datasets,
+        fill_value=0
+    )
+
+    # Sort product annotations by total BGC count, descending.
+    counts = counts.loc[
+        counts.sum(axis=1).sort_values(ascending=False).index
+    ]
+
+    # Save the count matrix.
+    counts.to_csv(
+        outdir / "antismash_product_heatmap_counts.tsv",
+        sep="\t",
+        index_label="Product"
+    )
+
+    # Dynamic figure size based on datasets and annotations.
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(counts))
+        )
+    )
+
+    sns.heatmap(
+        counts,
+        annot=True,
+        fmt="d",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        cbar_kws={"label": "Number of BGCs"},
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("antiSMASH product annotation")
+    ax.set_title("antiSMASH product annotations by dataset")
+
+    ax.tick_params(axis="x", labelrotation=45)
+    ax.tick_params(axis="y", labelrotation=0)
+
+    savefig(fig, outdir / "antismash_product_heatmap.png")
+
+
+# ============================================================
+# antiSMASH product heatmap - percentages by dataset
+# ============================================================
+
+def plot_product_heatmap_percentages(df, outdir):
+    """
+    Heatmap of antiSMASH product annotations by dataset.
+
+    Y-axis: original product cell values, kept intact.
+    X-axis: datasets.
+    Cell values: percentage of BGCs with each exact product
+                 annotation within each dataset.
+
+    Percentages are calculated independently for each dataset.
+
+    Example:
+        LlaimaVolcano has 20 product occurrences.
+        RiPP-like occurs 2 times.
+        Percentage = (2 / 20) * 100 = 10%.
+
+    Comma-separated product values are NOT split.
+    """
+
+    data = df.copy()
+
+    data["Database"] = (
+        data["Database"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    data["product"] = (
+        data["product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Exclude empty or missing product annotations.
+    data = data[
+        data["Database"].ne("")
+        & data["product"].ne("")
+        & ~data["product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print("No antiSMASH product annotations found; skipping heatmap.")
+        return
+
+    # --------------------------------------------------------
+    # Keep each complete product cell as ONE category.
+    # Comma-separated values are NOT split.
+    # --------------------------------------------------------
+
+    counts = pd.crosstab(
+        data["product"],
+        data["Database"]
+    )
+
+    # Preserve dataset order used in the input table.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(
+        columns=datasets,
+        fill_value=0
+    )
+
+    # --------------------------------------------------------
+    # Convert counts to percentages independently for
+    # each dataset.
+    #
+    # Each column sums to 100%.
+    # --------------------------------------------------------
+
+    totals = counts.sum(axis=0)
+
+    percentages = counts.div(
+        totals.replace(0, np.nan),
+        axis=1
+    ) * 100
+
+    percentages = percentages.fillna(0)
+
+    # --------------------------------------------------------
+    # Sort product annotations by their total percentage
+    # across datasets, descending.
+    # --------------------------------------------------------
+
+    percentages = percentages.loc[
+        percentages.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    # --------------------------------------------------------
+    # Save the percentage matrix.
+    # --------------------------------------------------------
+
+    percentages.to_csv(
+        outdir / "antismash_product_heatmap_percentages.tsv",
+        sep="\t",
+        index_label="Product"
+    )
+
+    # --------------------------------------------------------
+    # Dynamic figure size.
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(percentages))
+        )
+    )
+
+    # --------------------------------------------------------
+    # Heatmap
+    # --------------------------------------------------------
+
+    max_percentage = percentages.to_numpy().max()
+
+    sns.heatmap(
+        percentages,
+        annot=True,
+        fmt=".1f",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        vmin=0,
+        vmax=max_percentage,
+        cbar_kws={
+            "label": "Percentage of BGCs (%)"
+        },
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("antiSMASH product annotation")
+    ax.set_title(
+        "antiSMASH product annotations by dataset (%)"
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelrotation=45
+    )
+
+    ax.tick_params(
+        axis="y",
+        labelrotation=0
+    )
+
+    savefig(
+        fig,
+        outdir / "antismash_product_heatmap_percentages.png"
+    )
+
 
 # ============================================================
 # General summary
@@ -1704,42 +2480,19 @@ def plot_resistance(df, outdir):
 
     savefig(ax.figure, outdir / "resistance_stacked_bar.png")
 
-    pct.round(3).to_csv(
-        outdir / "resistance_percentage.csv"
-    )
+    pct.round(3).to_csv(outdir / "resistance_percentage.csv")
 
-    binary = pd.crosstab(
-        long["row_id"],
-        long["Resistance"]
-    ).clip(upper=1)
+    binary = pd.crosstab(long["row_id"], long["Resistance"]).clip(upper=1)
 
-    binary = binary.reindex(
-        df.index,
-        fill_value=0
-    )
+    binary = binary.reindex(df.index, fill_value=0)
 
-    binary.insert(
-        0,
-        "Database",
-        df["Database"].values
-    )
+    binary.insert(0, "Database", df["Database"].values)
 
-    binary.insert(
-        1,
-        "BGC_index",
-        df.index
-    )
+    binary.insert(1, "BGC_index", df.index)
 
-    binary.to_csv(
-        outdir / "resistance_bgc_binary_matrix.csv",
-        index=False
-    )
+    binary.to_csv(outdir / "resistance_bgc_binary_matrix.csv",index=False)
 
-    plot_upset(
-        binary.drop(columns=["Database", "BGC_index"]),
-        "Resistance hit combinations",
-        outdir / "resistance_upset.png"
-    )
+    plot_upset(binary.drop(columns=["Database", "BGC_index"]), "Resistance hit combinations", outdir / "resistance_upset.png")
 
 
 # ============================================================
@@ -2465,6 +3218,15 @@ def main():
         outdir,
         DATASET_COLORS
     )
+
+    plot_product_and_bigscape_summaries(
+        df=df,
+        outdir=outdir,
+    )
+
+    plot_product_heatmap(df, outdir)
+
+    plot_product_heatmap_percentages(df, outdir)
 
     # ------------------------------------------------------------
     # BiG-SCAPE
