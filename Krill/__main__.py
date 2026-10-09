@@ -30,9 +30,12 @@ parser.add_argument("--pfam-path", dest="pfam", default=None, help="Path to Pfam
 parser.add_argument("--bigscape-analysis", action="store_true", default=False, help="Run the optional BiG-SCAPE category analysis on an existing BiG-SCAPE database")
 parser.add_argument("--bigscape-analysis-threshold", type=float, default=0.3, help="Distance threshold used for BiG-SCAPE singleton classification [DEFAULT: 0.3]")
 parser.add_argument("--bigscape-analysis-permutations", type=int, default=999, help="Number of permutations used for PERMANOVA/PERMDISP [DEFAULT: 999]")
+parser.add_argument("--krill_plots", action="store_true", default=False, help="Generate all Krill plots after completing the analysis")
 
 
 args = parser.parse_args()
+
+krill_input_path = pathlib.Path(args.PATH).resolve()
 
 # Fixed BiG-SCAPE settings
 args.bigscape_env = "bigscape"
@@ -140,5 +143,34 @@ if args.bigscape_analysis:
 
 cprint.info('# Building charts...')
 build_charts.build_charts(args.PATH)
+
+if args.krill_plots:
+    cprint.info('# Generating all Krill plots...')
+    plots_input = (krill_input_path / "DBsReportOutput" / "DBs_BGCs_with_Hits_BiGSCAPE.tsv")
+    plots_script = (pathlib.Path(__file__).resolve().parent / "krill_all_plots.py")
+    if not plots_script.is_file():
+        raise FileNotFoundError(f"Could not find the plotting script: {plots_script}")
+
+    if not plots_input.is_file():
+        raise FileNotFoundError(
+            "Cannot generate Krill plots because the integrated "
+            f"BiG-SCAPE table was not found: {plots_input}\n"
+            "Run Krill with --bigscape to generate the required table."
+        )
+
+    # Create the output directory.
+    plots_output = krill_input_path / "KrillPlots"
+    plots_output.mkdir(parents=True, exist_ok=True)
+
+    # Run the plotting script using the current Python interpreter.
+    command = [sys.executable, str(plots_script), str(plots_input), "-o", str(plots_output), "--input-path", str(krill_input_path)]
+
+    cprint.info("Running krill_all_plots.py...")
+    cprint.info(f"Input table: {plots_input}")
+    cprint.info(f"Output directory: {plots_output}")
+
+    subprocess.run(command, check=True)
+
+    cprint.ok("All Krill plots generated successfully.")
 
 cprint.ok('\nAll done. Any questions please contact: henrique.niero@lnbio.cnpem.br \nCheers!')
