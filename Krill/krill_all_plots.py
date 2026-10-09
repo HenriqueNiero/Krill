@@ -41,6 +41,8 @@ pandas, numpy, matplotlib, seaborn, scipy
 
 import argparse, ast, itertools, math, re
 from pathlib import Path
+import ast
+from upsetplot import UpSet, from_contents
 
 import numpy as np
 import pandas as pd
@@ -50,6 +52,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import pingouin as pg
+
 
 from scipy import stats
 from scipy.cluster.hierarchy import linkage, dendrogram
@@ -3086,6 +3089,766 @@ def plot_resistance_product_heatmap_percentages_class(df, outdir):
     )
 
 
+
+
+# ============================================================
+# UpSet plot: shared resistance-hit classes between datasets
+# ============================================================
+
+def plot_resistance_upset(df, outdir, colors):
+
+    from upsetplot import UpSet, from_contents
+
+    # Reuse the existing resistance-class preparation function.
+    counts = prepare_resistance_class_counts(df, outdir)
+
+    if counts is None or counts.empty:
+        print("Skipping resistance UpSet plot: no resistance hits found.")
+        return
+
+    # Build a set of resistance classes for each dataset.
+    # A class is included only once per dataset, even if that
+    # dataset contains multiple hits belonging to the same class.
+    contents = {
+        dataset: set(
+            counts.index[counts[dataset] > 0].tolist()
+        )
+        for dataset in counts.columns
+    }
+
+    # Remove datasets without resistance classes.
+    contents = {
+        dataset: classes
+        for dataset, classes in contents.items()
+        if classes
+    }
+
+    if not contents:
+        print("Skipping resistance UpSet plot: no classes to compare.")
+        return
+
+    # Save the unique resistance classes used in the UpSet plot.
+    pd.DataFrame([
+        {
+            "Database": dataset,
+            "Resistance_class": resistance_class
+        }
+        for dataset, classes in contents.items()
+        for resistance_class in sorted(classes)
+    ]).to_csv(
+        outdir / "resistance_upset_classes.tsv",
+        sep="\t",
+        index=False
+    )
+
+    # Convert dataset -> set of classes into UpSet input.
+    upset_data = from_contents(contents)
+
+    # Calculate dynamic figure dimensions.
+    n_datasets = len(contents)
+    n_intersections = len(upset_data.index.unique())
+
+    figure_width = max(10, 0.8 * n_intersections + 4)
+    figure_height = max(6, 0.7 * n_datasets + 3)
+
+    fig = plt.figure(
+        figsize=(figure_width, figure_height)
+    )
+
+    upset = UpSet(
+        upset_data,
+        subset_size="count",
+        show_counts=True,
+        sort_by="cardinality",
+        sort_categories_by="-input",
+        facecolor="black"
+    )
+
+    axes = upset.plot(fig=fig)
+
+    # --------------------------------------------------------
+    # Color dataset bars using the shared dataset palette.
+    # Match bars to dataset labels using their vertical positions.
+    # --------------------------------------------------------
+    dataset_ax = axes["totals"]
+
+    # Force Matplotlib to calculate tick positions and labels.
+    fig.canvas.draw()
+
+    tick_positions = dataset_ax.get_yticks()
+    tick_labels = [
+        tick.get_text()
+        for tick in dataset_ax.get_yticklabels()
+    ]
+
+    # Map each dataset label to its y-axis position.
+    label_by_position = {
+        position: label
+        for position, label in zip(tick_positions, tick_labels)
+    }
+
+    for bar in dataset_ax.patches:
+        bar_center = bar.get_y() + bar.get_height() / 2
+
+        if not label_by_position:
+            continue
+
+        # Find the nearest y-axis tick to this bar's center.
+        nearest_position = min(
+            label_by_position,
+            key=lambda position: abs(position - bar_center)
+        )
+
+        dataset = label_by_position[nearest_position]
+
+        if dataset in colors:
+            bar.set_facecolor(colors[dataset])
+
+    # Title and output.
+    fig.suptitle(
+        "Resistance-hit classes shared between datasets",
+        fontsize=16,
+        y=1.02
+    )
+
+    fig.savefig(
+        outdir / "resistance_upset.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.close(fig)
+
+    print(
+        f"Resistance UpSet plot saved to: "
+        f"{outdir / 'resistance_upset.png'}"
+    )
+
+    # --------------------------------------------------------
+    # Build a table of resistance classes for each intersection.
+    # --------------------------------------------------------
+
+    # Each UpSet index entry is a Boolean tuple indicating
+    # which datasets participate in that intersection.
+    intersection_rows = []
+
+    for intersection in upset_data.index.unique():
+        if not isinstance(intersection, tuple):
+            intersection = (intersection,)
+
+        participating_datasets = [
+            dataset
+            for dataset, included in zip(
+                upset_data.index.names,
+                intersection
+            )
+            if included
+        ]
+
+        # Classes must occur in every participating dataset.
+        shared_classes = set.intersection(
+            *[
+                contents[dataset]
+                for dataset in participating_datasets
+            ]
+        )
+
+        # Exclude classes also found in datasets outside this
+        # intersection, because UpSet intersections are exact.
+        other_datasets = [
+            dataset
+            for dataset in contents
+            if dataset not in participating_datasets
+        ]
+
+        if other_datasets:
+            classes_in_other_datasets = set.union(
+                *[
+                    contents[dataset]
+                    for dataset in other_datasets
+                ]
+            )
+            shared_classes -= classes_in_other_datasets
+
+        intersection_rows.append({
+            "Datasets": " + ".join(participating_datasets),
+            "Number_of_classes": len(shared_classes),
+            "Resistance_classes": "; ".join(sorted(shared_classes))
+        })
+
+    # Save the intersection-class details to a TSV file.
+    intersection_df = pd.DataFrame(intersection_rows)
+
+    intersection_df.to_csv(
+        outdir / "resistance_upset_intersection_classes.tsv",
+        sep="\t",
+        index=False
+    )
+
+
+
+# ============================================================
+# Parse the genes column for regulatory genes
+# ============================================================
+
+def parse_gene_records(value):
+    """
+    Parse the genes column into individual gene records.
+
+    Supports:
+      - Multiple records without an outer list.
+      - Multiple records enclosed in an outer list.
+      - A single gene record.
+    """
+
+    if not isinstance(value, str) or not value.strip():
+        return []
+
+    value = value.strip()
+
+    # First, try parsing the value as it appears in the TSV.
+    try:
+        parsed = ast.literal_eval(value)
+    except (ValueError, SyntaxError):
+        parsed = None
+
+    # Multiple comma-separated records without outer brackets
+    # are parsed by Python as a tuple.
+    if isinstance(parsed, (list, tuple)):
+        # A single gene record looks like:
+        # ['contig', 'CDS', start, end, ...]
+        if (
+            len(parsed) > 1
+            and parsed[1] == "CDS"
+        ):
+            return [list(parsed)]
+
+        # A collection of gene records.
+        if all(
+            isinstance(record, (list, tuple))
+            and len(record) > 1
+            and record[1] == "CDS"
+            for record in parsed
+        ):
+            return [list(record) for record in parsed]
+
+    # Fallback: wrap multiple records in an outer list.
+    try:
+        parsed = ast.literal_eval("[" + value.rstrip(",") + "]")
+    except (ValueError, SyntaxError):
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    if all(
+        isinstance(record, (list, tuple))
+        and len(record) > 1
+        and record[1] == "CDS"
+        for record in parsed
+    ):
+        return [list(record) for record in parsed]
+
+    return []
+
+
+# ============================================================
+# Extract a readable regulatory gene description
+# ============================================================
+
+def clean_regulatory_description(annotation):
+    """
+    Convert a regulatory annotation into its gene class.
+
+    Example:
+    regulatory (smcogs) SMCOG1057:TetR family transcriptional
+    regulator (Score: 69.8; E-value: 6.5e-21)
+
+    becomes:
+    TetR family transcriptional regulator
+    """
+    description = str(annotation).strip()
+
+    # Remove the regulatory category and annotation source.
+    description = re.sub(
+        r"^regulatory\s+\([^)]*\)\s*",
+        "",
+        description,
+        flags=re.IGNORECASE
+    )
+
+    # Remove the SMCOG identifier, if present.
+    description = re.sub(
+        r"^SMCOG\d+\s*:\s*",
+        "",
+        description,
+        flags=re.IGNORECASE
+    )
+
+    # Remove score and E-value information.
+    description = re.sub(
+        r"\s*\(Score:.*$",
+        "",
+        description,
+        flags=re.IGNORECASE
+    )
+
+    return description.strip().rstrip(".")
+
+
+# ============================================================
+# Extract all regulatory gene occurrences
+# ============================================================
+
+def extract_regulatory_gene_occurrences(df, outdir):
+    """
+    Extract regulatory genes from the genes column.
+
+    Returns one row per regulatory gene occurrence, including
+    its dataset, BGC information, locus tag, coordinates,
+    original annotation, and cleaned gene class.
+
+    Saves:
+        regulatory_gene_occurrences.tsv
+    """
+
+    occurrences = []
+
+    for _, row in df.iterrows():
+
+        dataset = row.get("Database", "Unknown")
+        gene_records = parse_gene_records(row.get("genes", ""))
+
+        for gene in gene_records:
+
+            # Gene record fields in the supplied genes column:
+            # 0 = contig
+            # 1 = feature type
+            # 2 = start
+            # 3 = end
+            # 5 = annotations
+            # 6 = gene categories
+            # 7 = locus tags
+
+            if len(gene) < 7:
+                continue
+
+            annotations = gene[5] if isinstance(gene[5], list) else []
+            categories = gene[6] if isinstance(gene[6], list) else []
+
+            is_regulatory = any(
+                str(category).strip().lower() == "regulatory"
+                for category in categories
+            )
+
+            if not is_regulatory:
+                continue
+
+            # Use regulatory annotations only.
+            regulatory_annotations = [
+                str(annotation).strip()
+                for annotation in annotations
+                if str(annotation).strip().lower().startswith(
+                    "regulatory "
+                )
+            ]
+
+            # Keep the gene even if it has a regulatory category
+            # but lacks a corresponding detailed annotation.
+            if not regulatory_annotations:
+                regulatory_annotations = ["regulatory (description unavailable)"]
+
+            locus_tags = (
+                gene[7]
+                if len(gene) > 7 and isinstance(gene[7], list)
+                else []
+            )
+
+            locus_tag = ", ".join(map(str, locus_tags)) if locus_tags else ""
+
+            # Avoid counting the same description twice for one gene.
+            unique_annotations = list(dict.fromkeys(regulatory_annotations))
+
+            for annotation in unique_annotations:
+
+                gene_class = clean_regulatory_description(annotation)
+
+                if not gene_class:
+                    gene_class = "Unknown regulatory gene"
+
+                occurrences.append({
+                    "Database": dataset,
+                    "OriginalName": row.get("OriginalName", ""),
+                    "BGC_contig": row.get("contig", ""),
+                    "cluster_number": row.get("cluster_number", ""),
+                    "gene_contig": gene[0],
+                    "gene_start": gene[2],
+                    "gene_end": gene[3],
+                    "locus_tag": locus_tag,
+                    "regulatory_gene_class": gene_class,
+                    "original_annotation": annotation
+                })
+
+    occurrence_df = pd.DataFrame(occurrences)
+
+    # Save the complete list of regulatory gene occurrences.
+    occurrence_df.to_csv(
+        outdir / "regulatory_gene_occurrences.tsv",
+        sep="\t",
+        index=False
+    )
+
+    if occurrence_df.empty:
+        print("No regulatory genes were found in the genes column.")
+        return None
+
+    print(
+        f"Extracted {len(occurrence_df)} regulatory gene occurrences "
+        f"from {occurrence_df['Database'].nunique()} datasets."
+    )
+
+    return occurrence_df
+
+
+# ============================================================
+# Prepare regulatory gene counts per dataset
+# ============================================================
+
+def prepare_regulatory_gene_counts(df, outdir):
+
+    occurrences = extract_regulatory_gene_occurrences(df, outdir)
+
+    if occurrences is None or occurrences.empty:
+        return None
+
+    # Count regulatory gene occurrences by class and dataset.
+    counts = pd.crosstab(
+        occurrences["regulatory_gene_class"],
+        occurrences["Database"]
+    )
+
+    # Preserve the dataset order from the original DataFrame.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(columns=datasets, fill_value=0)
+
+    # Sort classes by total number of occurrences.
+    counts = counts.loc[
+        counts.sum(axis=1).sort_values(ascending=False).index
+    ]
+
+    return counts
+
+
+# ============================================================
+# Heatmap 1: Regulatory gene counts
+# ============================================================
+
+def plot_regulatory_gene_heatmap(df, outdir):
+
+    counts = prepare_regulatory_gene_counts(df, outdir)
+
+    if counts is None or counts.empty:
+        print("Skipping regulatory gene count heatmap.")
+        return
+
+    counts.to_csv(
+        outdir / "regulatory_gene_heatmap_counts.tsv",
+        sep="\t",
+        index_label="Regulatory_gene_class"
+    )
+
+    datasets = counts.columns.tolist()
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.35 * len(counts))
+        )
+    )
+
+    sns.heatmap(
+        counts,
+        annot=True,
+        fmt="d",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        cbar_kws={"label": "Number of regulatory genes"},
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Regulatory gene class")
+    ax.set_title("Regulatory gene classes by dataset")
+
+    ax.tick_params(axis="x", labelrotation=45)
+    ax.tick_params(axis="y", labelrotation=0)
+
+    fig.tight_layout()
+
+    savefig(
+        fig,
+        outdir / "regulatory_gene_heatmap.png"
+    )
+
+
+# ============================================================
+# Heatmap 2: Regulatory gene percentages
+# ============================================================
+
+def plot_regulatory_gene_heatmap_percentages(df, outdir):
+
+    counts = prepare_regulatory_gene_counts(df, outdir)
+
+    if counts is None or counts.empty:
+        print("Skipping regulatory gene percentage heatmap.")
+        return
+
+    # Calculate each class as a percentage of all regulatory
+    # gene occurrences in its dataset.
+    totals = counts.sum(axis=0)
+
+    percentages = counts.div(
+        totals.replace(0, np.nan),
+        axis=1
+    ) * 100
+
+    percentages = percentages.fillna(0)
+
+    # Sort by total percentage across datasets.
+    percentages = percentages.loc[
+        percentages.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    percentages.to_csv(
+        outdir / "regulatory_gene_heatmap_percentages.tsv",
+        sep="\t",
+        index_label="Regulatory_gene_class"
+    )
+
+    datasets = percentages.columns.tolist()
+    max_percentage = percentages.to_numpy().max()
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.35 * len(percentages))
+        )
+    )
+
+    sns.heatmap(
+        percentages,
+        annot=True,
+        fmt=".1f",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        vmin=0,
+        vmax=max_percentage if max_percentage > 0 else 1,
+        cbar_kws={"label": "Regulatory genes (%)"},
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Regulatory gene class")
+    ax.set_title("Regulatory gene classes by dataset (%)")
+
+    ax.tick_params(axis="x", labelrotation=45)
+    ax.tick_params(axis="y", labelrotation=0)
+
+    fig.tight_layout()
+
+    savefig(
+        fig,
+        outdir / "regulatory_gene_heatmap_percentages.png"
+    )
+
+
+
+# ============================================================
+# UpSet plot: shared regulatory gene classes between datasets
+# ============================================================
+
+def plot_regulatory_upset(df, outdir, colors):
+
+    from upsetplot import UpSet, from_contents
+    from matplotlib.patches import Patch
+
+    # Reuse the existing extraction function.
+    # This also saves regulatory_gene_occurrences.tsv.
+    occurrences = extract_regulatory_gene_occurrences(df, outdir)
+
+    if occurrences is None or occurrences.empty:
+        print("Skipping regulatory UpSet plot: no regulatory genes found.")
+        return
+
+    # Build a set of unique regulator classes for each dataset.
+    # count only once per dataset for the intersection analysis.
+    contents = (
+        occurrences
+        .groupby("Database")["regulatory_gene_class"]
+        .apply(lambda values: set(values.dropna()))
+        .to_dict()
+    )
+
+    # Remove datasets with no regulator classes.
+    contents = {
+        dataset: classes
+        for dataset, classes in contents.items()
+        if classes
+    }
+
+    if not contents:
+        print("Skipping regulatory UpSet plot: no classes to compare.")
+        return
+
+    # Save the unique regulator classes used in the UpSet plot.
+    pd.DataFrame([
+        {
+            "Database": dataset,
+            "regulatory_gene_class": gene_class
+        }
+        for dataset, classes in contents.items()
+        for gene_class in sorted(classes)
+    ]).to_csv(
+        outdir / "regulatory_upset_classes.tsv",
+        sep="\t",
+        index=False
+    )
+
+
+
+    # Convert dataset -> set of classes into UpSet input.
+    upset_data = from_contents(contents)
+    # Count the number of datasets.
+    n_datasets = len(contents)
+    # Count the number of intersections represented in the UpSet data.
+    n_intersections = len(upset_data.index.unique())
+    # Dynamic figure dimensions. Height increases with the number of datasets. Width increases with the number of intersections.
+    figure_width = max(10, 0.8 * n_intersections + 4)
+    figure_height = max(6, 0.7 * n_datasets + 3)
+
+    fig = plt.figure(figsize=(figure_width, figure_height))
+
+    upset = UpSet(
+        upset_data,
+        subset_size="count",
+        show_counts=True,
+        sort_by="cardinality",
+        sort_categories_by="-input",
+        facecolor="black"
+    )
+
+    axes = upset.plot(fig=fig)
+
+    # --------------------------------------------------------
+    # Color the dataset bars using the shared dataset palette.
+    # --------------------------------------------------------
+    dataset_ax = axes["totals"]
+
+    # UpSet orders categories according to its internal sorting.
+    # Match each bar to its dataset using the y-axis tick labels.
+    tick_labels = [
+        tick.get_text()
+        for tick in dataset_ax.get_yticklabels()
+    ]
+
+    for bar, label in zip(dataset_ax.patches, tick_labels):
+        if label in colors:
+            bar.set_facecolor(colors[label])
+
+    fig.suptitle(
+        "Regulatory gene classes shared between datasets",
+        fontsize=16,
+        y=1.02
+    )
+
+    fig.savefig(
+        outdir / "regulatory_upset.png",
+        dpi=300,
+        bbox_inches="tight"
+    )
+
+    plt.close(fig)
+
+    print(
+        f"Regulatory UpSet plot saved to: "
+        f"{outdir / 'regulatory_upset.png'}"
+    )
+
+    # --------------------------------------------------------
+    # Build a table of regulatory classes for each intersection.
+    # --------------------------------------------------------
+
+    # Each UpSet index entry is a Boolean tuple indicating
+    # which datasets participate in that intersection.
+    intersection_rows = []
+
+    for intersection in upset_data.index.unique():
+        if not isinstance(intersection, tuple):
+            intersection = (intersection,)
+
+        participating_datasets = [
+            dataset
+            for dataset, included in zip(
+                upset_data.index.names,
+                intersection
+            )
+            if included
+        ]
+
+        # Classes must occur in every participating dataset.
+        shared_classes = set.intersection(
+            *[
+                contents[dataset]
+                for dataset in participating_datasets
+            ]
+        )
+
+        # Exclude classes also found in datasets outside this
+        # intersection, because UpSet intersections are exact.
+        other_datasets = [
+            dataset
+            for dataset in contents
+            if dataset not in participating_datasets
+        ]
+
+        if other_datasets:
+            classes_in_other_datasets = set.union(
+                *[
+                    contents[dataset]
+                    for dataset in other_datasets
+                ]
+            )
+            shared_classes -= classes_in_other_datasets
+
+        intersection_rows.append({
+            "Datasets": " + ".join(participating_datasets),
+            "Number_of_classes": len(shared_classes),
+            "Regulatory_classes": "; ".join(sorted(shared_classes))
+        })
+
+    # Save the intersection-class details to a TSV file.
+    intersection_df = pd.DataFrame(intersection_rows)
+
+    intersection_df.to_csv(
+        outdir / "regulatory_upset_intersection_classes.tsv",
+        sep="\t",
+        index=False
+    )
+
+
 # ============================================================
 # General summary
 # ============================================================
@@ -3981,6 +4744,14 @@ def main():
     plot_resistance_product_heatmap_class(df, outdir)
 
     plot_resistance_product_heatmap_percentages_class(df, outdir)
+
+    plot_regulatory_gene_heatmap(df, outdir)
+
+    plot_regulatory_gene_heatmap_percentages(df, outdir)
+
+    plot_regulatory_upset(df, outdir, DATASET_COLORS)
+
+    plot_resistance_upset(df, outdir, DATASET_COLORS)
 
     # ------------------------------------------------------------
     # BiG-SCAPE
