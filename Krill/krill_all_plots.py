@@ -2341,6 +2341,752 @@ def plot_product_heatmap_percentages(df, outdir):
 
 
 # ============================================================
+# Known resistance hit product heatmap
+# ============================================================
+
+def plot_resistance_product_heatmap(df, outdir):
+    """
+    Heatmap of known resistance-hit products by dataset.
+
+    Y-axis: individual resistance-hit products.
+    X-axis: datasets.
+    Cell values: number of resistance hits.
+
+    Comma-separated values in KnownResistanceHit_product
+    are SPLIT into individual hits.
+
+    Example:
+        MFS_1,ABC_tran,Acetyltransf_1,MarR
+
+    is counted as:
+
+        MFS_1             -> 1 hit
+        ABC_tran          -> 1 hit
+        Acetyltransf_1    -> 1 hit
+        MarR              -> 1 hit
+    """
+
+    data = df.copy()
+
+    data["Database"] = (
+        data["Database"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Exclude empty or missing resistance-hit annotations.
+    data = data[
+        data["Database"].ne("")
+        & data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print(
+            "No known resistance-hit products found; "
+            "skipping heatmap."
+        )
+        return
+
+    # --------------------------------------------------------
+    # Split comma-separated resistance hits.
+    #
+    # Example:
+    # MFS_1,ABC_tran,Acetyltransf_1,MarR
+    #
+    # becomes four separate rows/hits.
+    # --------------------------------------------------------
+
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .str.split(",")
+    )
+
+    data = data.explode(
+        "KnownResistanceHit_product"
+    )
+
+    # Remove whitespace introduced around commas.
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .astype(str)
+        .str.strip()
+    )
+
+    # Remove empty values after splitting.
+    data = data[
+        data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"]
+            .str.lower()
+            .isin({"nan", "none", "na"})
+    ].copy()
+
+    if data.empty:
+        print(
+            "No valid known resistance-hit products found "
+            "after splitting; skipping heatmap."
+        )
+        return
+
+    # --------------------------------------------------------
+    # Count individual resistance hits by dataset.
+    # --------------------------------------------------------
+
+    counts = pd.crosstab(
+        data["KnownResistanceHit_product"],
+        data["Database"]
+    )
+
+    # Preserve dataset order used in the input table.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(
+        columns=datasets,
+        fill_value=0
+    )
+
+    # --------------------------------------------------------
+    # Sort resistance hits by total occurrence,
+    # descending.
+    # --------------------------------------------------------
+
+    counts = counts.loc[
+        counts.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    # --------------------------------------------------------
+    # Save absolute-count matrix.
+    # --------------------------------------------------------
+
+    counts.to_csv(
+        outdir / "known_resistance_product_heatmap_counts.tsv",
+        sep="\t",
+        index_label="Resistance_hit_product"
+    )
+
+    # --------------------------------------------------------
+    # Dynamic figure size.
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(counts))
+        )
+    )
+
+    # --------------------------------------------------------
+    # Heatmap
+    # --------------------------------------------------------
+
+    sns.heatmap(
+        counts,
+        annot=True,
+        fmt="d",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        cbar_kws={
+            "label": "Number of resistance hits"
+        },
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Known resistance-hit product")
+    ax.set_title(
+        "Known resistance-hit products by dataset"
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelrotation=45
+    )
+
+    ax.tick_params(
+        axis="y",
+        labelrotation=0
+    )
+
+    savefig(
+        fig,
+        outdir / "known_resistance_product_heatmap.png"
+    )
+
+
+# ============================================================
+# Known resistance hit product heatmap - percentages
+# ============================================================
+
+def plot_resistance_product_heatmap_percentages(df, outdir):
+    """
+    Heatmap of known resistance-hit products by dataset.
+
+    Y-axis: individual resistance-hit products.
+    X-axis: datasets.
+    Cell values: percentage of resistance hits represented
+                 by each product within each dataset.
+
+    Percentages are calculated independently for each dataset.
+
+    Comma-separated values in KnownResistanceHit_product
+    are SPLIT into individual hits.
+
+    Example:
+        MFS_1,ABC_tran,Acetyltransf_1,MarR
+
+    is counted as four different resistance hits.
+    """
+
+    data = df.copy()
+
+    data["Database"] = (
+        data["Database"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Exclude empty or missing resistance-hit annotations.
+    data = data[
+        data["Database"].ne("")
+        & data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print(
+            "No known resistance-hit products found; "
+            "skipping percentage heatmap."
+        )
+        return
+
+    # --------------------------------------------------------
+    # Split comma-separated resistance hits.
+    # --------------------------------------------------------
+
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .str.split(",")
+    )
+
+    data = data.explode(
+        "KnownResistanceHit_product"
+    )
+
+    # Remove whitespace around individual hits.
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .astype(str)
+        .str.strip()
+    )
+
+    # Remove empty values after splitting.
+    data = data[
+        data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"]
+            .str.lower()
+            .isin({"nan", "none", "na"})
+    ].copy()
+
+    if data.empty:
+        print(
+            "No valid known resistance-hit products found "
+            "after splitting; skipping percentage heatmap."
+        )
+        return
+
+    # --------------------------------------------------------
+    # Count individual resistance hits by dataset.
+    # --------------------------------------------------------
+
+    counts = pd.crosstab(
+        data["KnownResistanceHit_product"],
+        data["Database"]
+    )
+
+    # Preserve dataset order used in the input table.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(
+        columns=datasets,
+        fill_value=0
+    )
+
+    # --------------------------------------------------------
+    # Convert counts to percentages independently for
+    # each dataset.
+    #
+    # Each column sums to 100%.
+    # --------------------------------------------------------
+
+    totals = counts.sum(axis=0)
+
+    percentages = counts.div(
+        totals.replace(0, np.nan),
+        axis=1
+    ) * 100
+
+    percentages = percentages.fillna(0)
+
+    # --------------------------------------------------------
+    # Sort resistance hits by total percentage across
+    # datasets, descending.
+    # --------------------------------------------------------
+
+    percentages = percentages.loc[
+        percentages.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    # --------------------------------------------------------
+    # Save percentage matrix.
+    # --------------------------------------------------------
+
+    percentages.to_csv(
+        outdir / "known_resistance_product_heatmap_percentages.tsv",
+        sep="\t",
+        index_label="Resistance_hit_product"
+    )
+
+    # --------------------------------------------------------
+    # Dynamic figure size.
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(percentages))
+        )
+    )
+
+    # --------------------------------------------------------
+    # Use the maximum OBSERVED percentage as the maximum
+    # value of the heatmap color scale.
+    # --------------------------------------------------------
+
+    max_percentage = percentages.to_numpy().max()
+
+    sns.heatmap(
+        percentages,
+        annot=True,
+        fmt=".1f",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        vmin=0,
+        vmax=max_percentage,
+        cbar_kws={
+            "label": "Percentage of resistance hits (%)"
+        },
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Known resistance-hit product")
+    ax.set_title(
+        "Known resistance-hit products by dataset (%)"
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelrotation=45
+    )
+
+    ax.tick_params(
+        axis="y",
+        labelrotation=0
+    )
+
+    savefig(
+        fig,
+        outdir / "known_resistance_product_heatmap_percentages.png"
+    )
+
+
+
+# ============================================================
+# Known resistance-hit product -> resistance class mapping
+# ============================================================
+
+RESISTANCE_CLASS_MAPPING_TEXT = """
+16S ribosomal RNA methyltransferase|16S_rRNA_methyltrans
+23S ribosomal RNA methyltransferase|Cfr23_rRNA_methyltrans,Erm23S_rRNA_methyltrans,Erm38,ErmA,ErmB,ErmC
+Acetyltransferase|Acetyltransf_4,Acetyltransf_1,Acetyltransf_7,Acetyltransf_8,Acetyltransf_3,Acetyltransf_9
+Acyltransferase|Acyltransferase
+Aminoglycoside acetyltransferase|AAC3,AAC3-I,AAC6-Ib,AAC6-I,AAC6-II,Antibiotic_NAT
+Aminoglycoside nucleotidyltransferase|ANT2,ANT3,ANT4,ANT6,ANT9,ANT
+Aminoglycoside phosphotransferase|APH3',APH3,APH6
+Aminotransferase|Aminotran_1_2,Aminotran_4
+Antibiotic efflux pump|MFS_1,efflux_Bcr_CflA,efflux_EmrB,MATE_efflux,ABC_efflux,adeA-adeI,adeB,adeC-adeK-oprM,adeR,adeS,baeR,baeS,Chlor_Efflux_Pump,emrB,emrE,macA,macB,marA,MexA,MexC,MexE,MexH,MexW-MexI,MexX,MFS_efflux,msbA,norA,phoQ,ramA,RND_efflux,robA,soxR,TetA-B,TetA-G,TetA,TetD,TetE,TetH-TetJ,tet_MFS_efflux,TetY,tolC,RND_mfp,ABC_tran,ABC2_membrane,drrA,ABC1,MFS_3,ACR_tran,Small_Multi_Drug_Res
+Beta-lactam resistance|blaI,blaR1,mecR1,TE_Inactivator
+Beta-lactamase|Lactamase_B,BCII,BJP,BlaB,CARB-PSE,ClassA,ClassB,ClassC-AmpC,ClassD,CMY-LAT-MOX-ACT-MIR-FOX,CTXM,DHA,DIM-GIM-SIM,Exo,GES,GOB,IMP,IND,KHM,KPC,L1,LRA,MoxA,NDM-CcrA,PC1,Sfh,SHV-LEN,SME,SPM,SubclassB1,SubclassB2,SubclassB3,TEM,VEB-PER,VIM,Beta-lactamase2,Beta-lactamase,Lactamase_B_2,CepA
+Cephalosporin resistance|CblA,CfxA
+Chloramphenicol acetyltransferase|Chlor_Acetyltrans_CAT,CAT
+Chloramphenicol phosphotransferase|Chlor_Phospho_CPT,CPT
+Dihydrofolate reductase|DHFR_1
+Dioxygenase|Glyoxalase
+Fluoroquinolone Resistant DNA Topoisomerase|Fluor_Res_DNA_Topo
+Glycopeptide resistance|D_ala_D_ala,Dala_Dala_lig_C,Dala_Dala_lig_N,vanA,vanB,vanC,vanD,vanH,vanR,vanS,vanT,vanW,vanX,vanY,vanZ
+Macrolide glycosyltransferase|macrolide_glycosyl
+MAR regulator|MarR,MarR_2
+Methyltransferase|Methyltransf_18,ArmA_Rmt
+PBP transpeptidase|Transpeptidase
+Peptide resistance|mprF
+Phosphotransferase|APH
+Quninolone resistance|Qnr
+Ribosomal RNA methyltransferase|FmrO
+Tetracycline resistance|TetM-TetW-TetO-TetS,tet_ribosomoal_protect,TetX
+Thymidylate synthase|Thymidylat_synt,thym_sym
+Transcription factor|Whib,SoxR,romA
+Transcription regulator|HTH_AraC
+Dihydropteroate synthase|Dihydropteroate
+Streptomycin phosphotransferase|APH3''
+Aminoglycoside resistance|Aminoglyc_resit
+Universal stress protein|Usp
+Proteasome subunit|Proteasome
+PBP transglycosylase|Transgly
+G3P dehydrogenase|Gp_dh_N,Gp_dh_C
+Hsp90 protein|HSP90
+Carbamoyltransferase|OTCace
+DNA gyrase|DNA_gyraseB,DNA_topoisoIV
+Biotin-requiring enzyme|Biotin_lipoyl
+RNA polymerase|RNA_pol,TIGR02013
+Carboxyltransferase|Carboxyl_trans,ACCA
+Pentapeptide repeats|Pentapeptide_4
+DNA polymerase|TIGR00663
+"""
+
+def build_resistance_product_class_mapping():
+    """
+    Convert the embedded mapping text into a dictionary:
+        resistance product -> resistance class
+    """
+    mapping = {}
+
+    for line in RESISTANCE_CLASS_MAPPING_TEXT.strip().splitlines():
+        if not line.strip():
+            continue
+
+        resistance_class, products_text = line.split("|", 1)
+
+        resistance_class = resistance_class.strip()
+
+        for product in products_text.split(","):
+            product = product.strip()
+
+            if product:
+                mapping[product] = resistance_class
+
+    return mapping
+
+
+RESISTANCE_PRODUCT_TO_CLASS = build_resistance_product_class_mapping()
+
+
+# ============================================================
+# Prepare resistance-class counts
+# ============================================================
+
+def prepare_resistance_class_counts(df, outdir):
+    """
+    Split KnownResistanceHit_product into individual hits,
+    map each product to its resistance class, and count
+    individual hits per class and dataset.
+
+    Returns a DataFrame:
+        Rows    = resistance classes
+        Columns = datasets
+        Values  = number of hits
+    """
+
+    data = df.copy()
+
+    # Clean dataset names.
+    data["Database"] = (
+        data["Database"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Clean resistance product annotations.
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Remove missing annotations.
+    data = data[
+        data["Database"].ne("")
+        & data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print("No known resistance-hit products found.")
+        return None
+
+    # Split comma-separated annotations into individual hits.
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"].str.split(",")
+    )
+
+    data = data.explode("KnownResistanceHit_product")
+
+    data["KnownResistanceHit_product"] = (
+        data["KnownResistanceHit_product"]
+        .astype(str)
+        .str.strip()
+    )
+
+    # Remove empty values created during splitting.
+    data = data[
+        data["KnownResistanceHit_product"].ne("")
+        & ~data["KnownResistanceHit_product"].str.lower().isin(
+            {"nan", "none", "na"}
+        )
+    ].copy()
+
+    if data.empty:
+        print("No valid resistance hits found after splitting.")
+        return None
+
+    # Map each resistance product to its class.
+    data["Resistance_class"] = data["KnownResistanceHit_product"].map(
+        RESISTANCE_PRODUCT_TO_CLASS
+    )
+
+    # Report products that are absent from the embedded mapping.
+    unmapped = sorted(
+        data.loc[
+            data["Resistance_class"].isna(),
+            "KnownResistanceHit_product"
+        ].unique()
+    )
+
+    if unmapped:
+        print(
+            "Warning: the following resistance products were not "
+            "found in the mapping and will retain their original names:"
+        )
+
+        for product in unmapped:
+            print(f"  - {product}")
+
+        # Keep unmapped products rather than silently discarding them.
+        data["Resistance_class"] = data["Resistance_class"].fillna(
+            data["KnownResistanceHit_product"].map(
+                lambda product: f"Unmapped: {product}"
+            )
+        )
+
+    # Count hits by resistance class and dataset.
+    counts = pd.crosstab(
+        data["Resistance_class"],
+        data["Database"]
+    )
+
+    # Preserve dataset order from the original input table.
+    datasets = (
+        df["Database"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .loc[lambda s: s.ne("")]
+        .drop_duplicates()
+        .tolist()
+    )
+
+    counts = counts.reindex(
+        columns=datasets,
+        fill_value=0
+    )
+
+    # Sort classes by total number of hits, descending.
+    counts = counts.loc[
+        counts.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    return counts
+
+
+# ============================================================
+# Resistance-class heatmap: absolute counts
+# ============================================================
+
+def plot_resistance_product_heatmap_class(df, outdir):
+
+    counts = prepare_resistance_class_counts(df, outdir)
+
+    if counts is None or counts.empty:
+        print("Skipping resistance-class count heatmap.")
+        return
+
+    # Save the count matrix.
+    counts.to_csv(
+        outdir / "known_resistance_class_heatmap_counts.tsv",
+        sep="\t",
+        index_label="Resistance_class"
+    )
+
+    datasets = counts.columns.tolist()
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(counts))
+        )
+    )
+
+    sns.heatmap(
+        counts,
+        annot=True,
+        fmt="d",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        cbar_kws={"label": "Number of resistance hits"},
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Known resistance-hit class")
+    ax.set_title("Known resistance-hit classes by dataset")
+
+    ax.tick_params(axis="x", labelrotation=45)
+    ax.tick_params(axis="y", labelrotation=0)
+
+    fig.tight_layout()
+
+    savefig(
+        fig,
+        outdir / "known_resistance_class_heatmap.png"
+    )
+
+
+# ============================================================
+# Resistance-class heatmap: percentages
+# ============================================================
+
+def plot_resistance_product_heatmap_percentages_class(df, outdir):
+
+    counts = prepare_resistance_class_counts(df, outdir)
+
+    if counts is None or counts.empty:
+        print("Skipping resistance-class percentage heatmap.")
+        return
+
+    # Calculate percentages independently for each dataset.
+    # Each non-empty dataset column sums to 100%.
+    totals = counts.sum(axis=0)
+
+    percentages = counts.div(
+        totals.replace(0, np.nan),
+        axis=1
+    ) * 100
+
+    percentages = percentages.fillna(0)
+
+    # Sort classes by total percentage across datasets.
+    percentages = percentages.loc[
+        percentages.sum(axis=1)
+        .sort_values(ascending=False)
+        .index
+    ]
+
+    # Save the percentage matrix.
+    percentages.to_csv(
+        outdir / "known_resistance_class_heatmap_percentages.tsv",
+        sep="\t",
+        index_label="Resistance_class"
+    )
+
+    datasets = percentages.columns.tolist()
+
+    fig, ax = plt.subplots(
+        figsize=(
+            max(8, 1.2 * len(datasets)),
+            max(6, 0.32 * len(percentages))
+        )
+    )
+
+    # Use the maximum observed percentage as the color-scale maximum.
+    max_percentage = percentages.to_numpy().max()
+
+    sns.heatmap(
+        percentages,
+        annot=True,
+        fmt=".1f",
+        cmap="YlGnBu",
+        linewidths=0.3,
+        linecolor="white",
+        vmin=0,
+        vmax=max_percentage if max_percentage > 0 else 1,
+        cbar_kws={"label": "Percentage of resistance hits (%)"},
+        ax=ax
+    )
+
+    ax.set_xlabel("Dataset")
+    ax.set_ylabel("Known resistance-hit class")
+    ax.set_title("Known resistance-hit classes by dataset (%)")
+
+    ax.tick_params(axis="x", labelrotation=45)
+    ax.tick_params(axis="y", labelrotation=0)
+
+    fig.tight_layout()
+
+    savefig(
+        fig,
+        outdir / "known_resistance_class_heatmap_percentages.png"
+    )
+
+
+# ============================================================
 # General summary
 # ============================================================
 
@@ -3227,6 +3973,14 @@ def main():
     plot_product_heatmap(df, outdir)
 
     plot_product_heatmap_percentages(df, outdir)
+
+    plot_resistance_product_heatmap(df, outdir)
+
+    plot_resistance_product_heatmap_percentages(df, outdir)
+
+    plot_resistance_product_heatmap_class(df, outdir)
+
+    plot_resistance_product_heatmap_percentages_class(df, outdir)
 
     # ------------------------------------------------------------
     # BiG-SCAPE
