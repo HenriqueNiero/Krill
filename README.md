@@ -406,12 +406,11 @@ FOLDERS AND FILES STRUCTURE
 ```
 
 
-Metadata file:
+Metadata file:  
 
-
-A file named metadata_krill.tsv with MAGs metadata information must be suppied to Krill.  
-The file needs to have the columns DataBase and OriginalContig (as in the file provided in this repository).  
-Put the file inside /path/example/ folder.
+Krill requires a metadata file named `metadata_krill.tsv`. 
+The file must contain `DataBase` and `OriginalContig` columns (refer to the example file provided in this repository for the correct format).  
+Save the file inside the `example/` directory (`/path/to/example/`).  
 
 
 </p>
