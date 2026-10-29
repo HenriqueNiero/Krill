@@ -307,10 +307,12 @@ python -c "import numpy, pandas, matplotlib, seaborn, sklearn, networkx, scipy; 
 
   
 4. Check packages version:  
+Conda Packages:  
 - sqlalchemy=2.0.51  
 
   
-
+  
+  
 5. Verify BiG-SCAPE
 ```
 conda activate bigscape
