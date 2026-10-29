@@ -306,12 +306,12 @@ python -c "import numpy, pandas, matplotlib, seaborn, sklearn, networkx, scipy; 
 ```
 
   
-Check packages version:  
+4. Check packages version:  
 - sqlalchemy=2.0.51  
 
   
 
-Verify BiG-SCAPE
+5. Verify BiG-SCAPE
 ```
 conda activate bigscape
 python --version
