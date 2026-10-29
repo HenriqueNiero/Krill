@@ -208,13 +208,25 @@ def readTSVKnownHits(tsv):
         # Build dictionary from the sample .fna
         print("\ncontigsFilesRenamed.tsv not found during ARTS. Recovering contig names from .fna files in KnownHits tables.")
         sample_dir = pathlib.Path(tsv).parents[1]
-        fna_file = sample_dir / f"{sample}.fna"
+        # Accept either .fna or .fasta
+        fna_candidates = [
+            sample_dir / f"{sample}.fna",
+            sample_dir / f"{sample}.fasta",
+        ]
 
+        fna_file = next(
+            (path for path in fna_candidates if path.is_file()),
+            None
+        )
 
-        if not fna_file.exists():
+        if fna_file is None:
             raise FileNotFoundError(
-                f"Cannot find FNA file:\n{fna_file}"
+                f"Cannot find genome FASTA file (.fna or .fasta):\n"
+                f"Checked:\n" +
+                "\n".join(str(path) for path in fna_candidates)
             )
+
+        print(f"Reading genome FASTA: {fna_file}")
 
         contig_dict = {}
 
