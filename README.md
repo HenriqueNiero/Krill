@@ -305,11 +305,11 @@ Check if all packages are already installed
 python -c "import numpy, pandas, matplotlib, seaborn, sklearn, networkx, scipy; print('BiG-SCAPE analysis dependencies OK')"
 ```
 
-
+  
 Check packages version:  
-sqlalchemy=2.0.51  
+- sqlalchemy=2.0.51  
 
-
+  
 
 Verify BiG-SCAPE
 ```
