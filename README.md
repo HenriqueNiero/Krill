@@ -135,6 +135,8 @@ Ubuntu/Linux Packages:
 Conda Packages:  
 - hmmer=3.1b2  
 - seqkit=2.13.0  
+- seaborn=0.13.2  
+- upsetplot=0.9.0
 
 Python packages:  
 - pandas=2.3.1  
@@ -302,6 +304,10 @@ Check if all packages are already installed
 ```
 python -c "import numpy, pandas, matplotlib, seaborn, sklearn, networkx, scipy; print('BiG-SCAPE analysis dependencies OK')"
 ```
+
+
+Check packages version:  
+sqlalchemy=2.0.51  
 
 
 
