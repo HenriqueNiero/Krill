@@ -22,19 +22,25 @@ def prepare_extraction(path):
     os.makedirs(directory, exist_ok=True)
 
 
+#def df2xlsx(path, sheet_name, df):
+#    df = df.copy().reset_index(drop=True)
+#    writer = pd.ExcelWriter(path, engine='xlsxwriter')
+#
+#    df.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)
+#    worksheet = writer.sheets[sheet_name]
+#
+#    (max_row, max_col) = df.shape
+#    column_settings = [{'header': column} for column in df.columns]
+#    worksheet.add_table(0, 0, max_row, max_col - 1, {'columns': column_settings})
+#    worksheet.set_column(0, max_col - 1, 15)
+#
+#    writer._save()
+
+
 def df2xlsx(path, sheet_name, df):
-    df = df.copy().reset_index(drop=True)
-    writer = pd.ExcelWriter(path, engine='xlsxwriter')
+    print(f"Skipping Excel export: {sheet_name}")
+    return
 
-    df.to_excel(writer, sheet_name=sheet_name, startrow=1, header=False, index=False)
-    worksheet = writer.sheets[sheet_name]
-
-    (max_row, max_col) = df.shape
-    column_settings = [{'header': column} for column in df.columns]
-    worksheet.add_table(0, 0, max_row, max_col - 1, {'columns': column_settings})
-    worksheet.set_column(0, max_col - 1, 15)
-
-    writer._save()
 
 
 def ARTS_overview(path):

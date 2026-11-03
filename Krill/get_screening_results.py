@@ -13,6 +13,7 @@ import pathlib, os
 import ast, numpy as np
 
 
+'''
 def df2xlsx(path, sheet_name, df):
     df = df.copy().reset_index()
     writer = pd.ExcelWriter(path, engine='xlsxwriter')
@@ -26,7 +27,12 @@ def df2xlsx(path, sheet_name, df):
     worksheet.set_column(0, max_col - 1, 15)
 
     writer._save()
+'''
 
+def df2xlsx(path, sheet_name, df):
+    """Excel export disabled; TSV/CSV exports remain enabled."""
+    print(f"Skipping Excel export: {sheet_name}")
+    return
 
 def map_products_to_category(product):
     replacement_rules = {

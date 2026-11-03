@@ -4,6 +4,7 @@ import pathlib, os
 import ast, numpy as np
 
 
+'''
 def df2xlsx(path, sheet_name, df):
     df = df.copy().reset_index(drop=True)
     writer = pd.ExcelWriter(path, engine='xlsxwriter')
@@ -14,6 +15,13 @@ def df2xlsx(path, sheet_name, df):
     worksheet.add_table(0, 0, max_row, max_col - 1, {'columns': column_settings})
     worksheet.set_column(0, max_col - 1, 15)
     writer._save()
+'''
+
+
+def df2xlsx(path, sheet_name, df):
+    """Excel export disabled; TSV/CSV exports remain enabled."""
+    print(f"Skipping Excel export: {sheet_name}")
+    return
 
 def get_csvs(path,pattern):
     return list(pathlib.Path(path).glob('**/{}'.format(pattern)))
