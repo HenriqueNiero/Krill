@@ -6,6 +6,7 @@ import argparse
 import datetime
 import subprocess
 import json
+import hashlib
 import csv
 import time
 import threading
@@ -30,6 +31,89 @@ import build_charts
 import run_bigscape
 import run_bigscape_analysis
 from bigscape_integration import integrate_bigscape_with_krill
+
+
+# ---------------------------------------------------------------------
+# Resume/checkpoint helpers
+# ---------------------------------------------------------------------
+
+def database_input_signature(fasta_files):
+    """Return a stable signature from FASTA names, sizes and modification times."""
+    entries = []
+    for fasta in sorted((pathlib.Path(p).resolve() for p in fasta_files), key=lambda p: str(p)):
+        stat = fasta.stat()
+        entries.append({
+            "name": fasta.name,
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        })
+    encoded = json.dumps(entries, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def database_outputs_complete(db):
+    """Check the key per-database TSV outputs before honoring a completion marker."""
+    required = [
+        os.path.join(db, "AntiSMASH", "AntiSMASH_Extractor", "clusters.tsv"),
+        os.path.join(db, "AntiSMASH", "AntiSMASH_Extractor", "clusters_blast.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "ARTS_overview.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "CoreHits.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "DupHits.tsv"),
+        os.path.join(db, "ReportOutput", "BGCs_with_Hits.tsv"),
+        os.path.join(db, "ReportOutput", "Complete_BGCs_with_Hits.tsv"),
+        os.path.join(db, "ReportOutput", "DNABases_and_ORFs_count.tsv"),
+    ]
+    return all(os.path.isfile(path) for path in required)
+
+
+def database_is_complete(db, signature, fasta_files):
+    marker = os.path.join(db, ".krill_complete.json")
+    if not database_outputs_complete(db):
+        return False
+
+    if os.path.isfile(marker):
+        try:
+            with open(marker, "r", encoding="utf-8") as handle:
+                state = json.load(handle)
+            return state.get("input_signature") == signature
+        except (OSError, json.JSONDecodeError):
+            return False
+
+    # Legacy compatibility: before KRILL had database markers, infer a
+    # completed database only when all expected TSVs are present and newer
+    # than the input FASTAs. This lets a previously completed environment be
+    # skipped on its first run with the resume-enabled version.
+    required = [
+        os.path.join(db, "AntiSMASH", "AntiSMASH_Extractor", "clusters.tsv"),
+        os.path.join(db, "AntiSMASH", "AntiSMASH_Extractor", "clusters_blast.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "ARTS_overview.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "CoreHits.tsv"),
+        os.path.join(db, "ARTS", "ARTS_Extractor", "DupHits.tsv"),
+        os.path.join(db, "ReportOutput", "BGCs_with_Hits.tsv"),
+        os.path.join(db, "ReportOutput", "Complete_BGCs_with_Hits.tsv"),
+        os.path.join(db, "ReportOutput", "DNABases_and_ORFs_count.tsv"),
+    ]
+    latest_input_mtime = max(
+        (pathlib.Path(f).stat().st_mtime_ns for f in fasta_files),
+        default=0,
+    )
+    if all(os.stat(output).st_mtime_ns >= latest_input_mtime for output in required):
+        write_database_completion_marker(db, signature, fasta_files)
+        return True
+    return False
+
+
+def write_database_completion_marker(db, signature, fasta_files):
+    marker = os.path.join(db, ".krill_complete.json")
+    state = {
+        "input_signature": signature,
+        "fasta_files": [os.path.basename(str(p)) for p in sorted(fasta_files)],
+        "completed_at": datetime.datetime.now().astimezone().isoformat(),
+    }
+    temporary = marker + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(state, handle, indent=2)
+    os.replace(temporary, marker)
 
 
 # ---------------------------------------------------------------------
@@ -707,20 +791,41 @@ root_path = os.path.abspath(args.PATH)
 root_database = False
 dbs = []
 
-# Find database directories inside the input directory.
-# Files such as taxonomy_krill are intentionally ignored.
+
+# Find database directories containing FASTA files.
+# Ignore output directories such as PerformanceReport,
+# DBsReportOutput, KrillPlots, etc.
+
+fasta_extensions = {".fasta", ".fa", ".fna", ".fas", ".ffn"}
+
 for x in os.listdir(root_path):
     full_path = os.path.join(root_path, x)
 
-    if os.path.isdir(full_path):
+    if not os.path.isdir(full_path):
+        continue
+
+    # Check whether this directory contains FASTA files.
+    has_fasta = any(
+        os.path.isfile(os.path.join(full_path, filename))
+        and pathlib.Path(filename).suffix.lower() in fasta_extensions
+        for filename in os.listdir(full_path)
+    )
+
+    if has_fasta:
         dbs.append(os.path.abspath(full_path))
+        print(f"[DATABASE FOUND] {x}", flush=True)
+    else:
+        print(f"[IGNORED DIRECTORY] {x} (no FASTA files)", flush=True)
+
 
 # If no database directories exist, the input directory is a single database.
 if not dbs:
     root_database = True
     dbs.append(root_path)
+    print(f"[ROOT DATABASE] Using input directory: {root_path}", flush=True)
 
 args.PATH = root_path
+
 
 monitor = PerformanceMonitor(
     output_path=args.PATH,
@@ -776,6 +881,22 @@ try:
             os.makedirs(os.path.join(db, 'ReportOutput'), exist_ok=True)
 
             db_fastas = list(pathlib.Path(db).glob("*.fasta"))
+            # Never process a directory without FASTA files as a database.
+            if not db_fastas:
+                cprint.warning(f"[SKIP] No FASTA files found in database directory: {db}")
+                os.chdir(args.PATH)
+                continue
+            db_signature = database_input_signature(db_fastas)
+
+            # Skip a database that was fully completed in an earlier KRILL run.
+            # If no database marker exists (older KRILL runs), the per-FASTA
+            # checks in run_AntiSMASH_and_ARTS.py still reuse valid outputs.
+            if database_is_complete(db, db_signature, db_fastas):
+                completed_mb = int(sum(os.stat(x).st_size for x in db_fastas) / (10 ** 6))
+                cprint.ok(f"[RESUME] Database already complete; skipping: {db_name}")
+                dbar.update(completed_mb)
+                os.chdir(args.PATH)
+                continue
 
             # Run AntiSMASH and ARTS concurrently for each FASTA file.
             with monitor.stage(f"{db_name}: AntiSMASH and ARTS jobs"):
@@ -864,6 +985,16 @@ try:
                 "fasta",
                 args.threads,
             )
+
+            # Mark this database complete only after every per-database stage
+            # has returned successfully and the expected TSV outputs exist.
+            if not database_outputs_complete(db):
+                raise RuntimeError(
+                    f"Database stages finished but one or more expected TSV outputs "
+                    f"are missing for {db_name}; the database will be retried next run."
+                )
+            write_database_completion_marker(db, db_signature, db_fastas)
+            cprint.ok(f"[CHECKPOINT] Database completed: {db_name}")
 
             os.chdir(args.PATH)
 

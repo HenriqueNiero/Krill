@@ -16,6 +16,20 @@ from ast import literal_eval
 import re
 
 
+def _is_incomplete_archive(path):
+    """True if any path component belongs to an archived incomplete run."""
+    return any(".incomplete_" in part for part in pathlib.Path(path).parts)
+
+
+def _find_valid_arts_files(root, pattern):
+    """Find files recursively, excluding archived incomplete directories."""
+    root = pathlib.Path(root)
+    return sorted(
+        str(file) for file in root.glob(pattern)
+        if file.is_file() and not _is_incomplete_archive(file)
+    )
+
+
 def prepare_extraction(path):
     
     directory = os.path.join(path,'ARTS','ARTS_Extractor')
@@ -53,12 +67,19 @@ def ARTS_overview(path):
     print('>>> OVERVIEW <<<\n')
     print('Getting files...')
     
-    referencia_fasta = list((pathlib.Path(path).glob("**/*.fna")))
-    referencia_clusters = list(pathlib.Path(path).glob("**/*clust.tsv"))
-    referencia_knownhits = list(pathlib.Path(path).glob("**/**/knownhits.tsv"))
-    referencia_coregenes = list(pathlib.Path(path).glob("**/**/coretable.tsv"))
+    # Exclude archived .incomplete_* results from every extraction input.
+    referencia_fasta = [
+        file for file in pathlib.Path(path).glob("**/*.fna")
+        if file.is_file() and not _is_incomplete_archive(file)
+    ]
+    referencia_clusters = [
+        file for file in pathlib.Path(path).glob("**/*clust.tsv")
+        if file.is_file() and not _is_incomplete_archive(file)
+    ]
+    referencia_knownhits = [pathlib.Path(x) for x in _find_valid_arts_files(path, "**/knownhits.tsv")]
+    referencia_coregenes = [pathlib.Path(x) for x in _find_valid_arts_files(path, "**/coretable.tsv")]
     print("\n###############   ARTS_extractor.py   #################\n")
-    referencia_duplic = list(pathlib.Path(path).glob("**/**/duptable.tsv"))
+    referencia_duplic = [pathlib.Path(x) for x in _find_valid_arts_files(path, "**/duptable.tsv")]
     
     CDS_count = []
     clusters_count = []
@@ -323,35 +344,69 @@ def readTSVdupTable(tsv):
     return df
 
 def ARTS_Results_Extraction(path):
-    path = os.path.join(path,'ARTS')
-    os.chdir(path)
-    directory=os.path.join(path,'ARTS_Extractor/')
+    """Collect ARTS tables from active genome runs only.
 
-    number_of_samples = 0
-    for item in os.listdir(path):
-        if os.path.isdir(item) and 'ARTS_Extractor' not in item:
-            number_of_samples += 1
+    Directories containing '.incomplete_' are archived failed/interrupted
+    runs. They are retained on disk but excluded from all extraction tables.
+    """
+    path = os.path.join(path, 'ARTS')
+    os.chdir(path)
+    directory = os.path.join(path, 'ARTS_Extractor')
+    os.makedirs(directory, exist_ok=True)
 
     print('>>> CORE GENES INFORMATION <<<\n')
     print('Getting Core Genes info...\n')
 
-    # knownResistenceHits = None
-    if glob.glob('**/**/knownhits.tsv') != []:
-        knownResistenceHits = pd.concat(map(readTSVKnownHits, glob.glob('**/**/knownhits.tsv')))
-        knownResistenceHits.to_csv(os.path.join(directory,'KnownHits.tsv'),sep='\t',index=False)
-        df2xlsx(os.path.join(directory,'KnownHits.xlsx'), 'KnownHits', knownResistenceHits)
+    # -------------------------- Known resistance hits -------------------
+    knownhits_files = _find_valid_arts_files(path, '**/knownhits.tsv')
+    if knownhits_files:
+        knownResistenceHits = pd.concat(
+            (readTSVKnownHits(file) for file in knownhits_files),
+            ignore_index=True
+        )
+        knownResistenceHits.to_csv(
+            os.path.join(directory, 'KnownHits.tsv'), sep='\t', index=False
+        )
+        df2xlsx(
+            os.path.join(directory, 'KnownHits.xlsx'),
+            'KnownHits',
+            knownResistenceHits
+        )
+    else:
+        print('[WARNING] No active knownhits.tsv files found. KnownHits.tsv was not generated.')
 
-    # else:
-    #     print(number_of_samples)
-    #     knownResistenceHits = pd.DataFrame(np.nan, index=[i for i in range(0, number_of_samples)], columns=['Model', 'Description', 'Sequence', 'id', 'evalue' , 'bitscore', 'Sample', 'Contig', 'Contig', 'HitStart', 'HitEnd', 'HitStrand'])
-    
-    CoreHits = pd.concat(map(readTSVCoreHits, glob.glob('**/**/coretable.tsv')))
-    CoreHits.to_csv(os.path.join(directory,'CoreHits.tsv'),sep='\t',index=False)
-    df2xlsx(os.path.join(directory,'CoreHits.xlsx'), 'CoreHits', CoreHits)
-    
-    dupTable = pd.concat(map(readTSVdupTable, glob.glob('**/**/duptable.tsv')))
-    dupTable.to_csv(os.path.join(directory,'DupHits.tsv'),sep='\t',index=False)
-    df2xlsx(os.path.join(directory,'DupHits.xlsx'), 'DupHits', dupTable)
+    # ------------------------------- Core hits --------------------------
+    coretable_files = _find_valid_arts_files(path, '**/coretable.tsv')
+    if not coretable_files:
+        raise FileNotFoundError(
+            'No active coretable.tsv files found under ARTS. '
+            'Archived .incomplete_ directories were excluded.'
+        )
+
+    CoreHits = pd.concat(
+        (readTSVCoreHits(file) for file in coretable_files),
+        ignore_index=True
+    )
+    CoreHits.to_csv(
+        os.path.join(directory, 'CoreHits.tsv'), sep='\t', index=False
+    )
+    df2xlsx(os.path.join(directory, 'CoreHits.xlsx'), 'CoreHits', CoreHits)
+
+    # ----------------------------- Duplicated hits ----------------------
+    duptable_files = _find_valid_arts_files(path, '**/duptable.tsv')
+    if duptable_files:
+        dupTable = pd.concat(
+            (readTSVdupTable(file) for file in duptable_files),
+            ignore_index=True
+        )
+        dupTable.to_csv(
+            os.path.join(directory, 'DupHits.tsv'), sep='\t', index=False
+        )
+        df2xlsx(os.path.join(directory, 'DupHits.xlsx'), 'DupHits', dupTable)
+    else:
+        print('[WARNING] No active duptable.tsv files found. DupHits.tsv was not generated.')
+
+    print('[ARTS EXTRACTION] Extraction finished successfully.')
 
 if __name__ == '__main__':
     # prepare_extraction(os.getcwd())

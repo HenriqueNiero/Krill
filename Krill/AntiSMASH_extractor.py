@@ -259,7 +259,10 @@ def get_clusters_blast(path, threads):
     modDf = pd.DataFrame()
     rkgDf = pd.DataFrame()
     
-    ref = list(pathlib.Path(path).glob("**/*.json"))
+    ref = [
+    file for file in pathlib.Path(path).glob("**/*.json")
+    if file.name != ".krill_complete.json"
+    ]
 
     db = os.path.basename(path)
     
