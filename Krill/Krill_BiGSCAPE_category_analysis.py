@@ -1276,8 +1276,6 @@ def subset_complete_case_distance(
 
     d = distance.copy()
 
-    print("\n distance d table from subset_complete_case_distance before function: \n ", d )
-
 
     '''
     d = d[
